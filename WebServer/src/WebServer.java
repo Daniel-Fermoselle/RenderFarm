@@ -8,6 +8,8 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
+import raytracer.
+
 public class WebServer {
 
     public static void main(String[] args) throws Exception {
@@ -44,7 +46,6 @@ public class WebServer {
                 String[] pair = split.split("=");
                 arguments.put(pair[0], pair[1]);
             }
-
 
 
             String response = "This was the query:" + t.getRequestURI().getQuery() + "##";
