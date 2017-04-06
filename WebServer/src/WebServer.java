@@ -1,3 +1,5 @@
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -9,6 +11,8 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
 import raytracer.*;
+
+import javax.imageio.ImageIO;
 
 public class WebServer {
 
@@ -49,8 +53,9 @@ public class WebServer {
                 arguments.put(pair[0], pair[1]);
             }
 
+            BufferedImage img;
             try {
-                Main.main(new String[]{"inputs/"+arguments.get("f"), "out.bmp",
+                img = Main.render(new String[]{"inputs/"+arguments.get("f"), "out.bmp",
                         arguments.get("sc"), arguments.get("sr"),
                         arguments.get("wc"), arguments.get("wr"),
                         arguments.get("coff"), arguments.get("roff")});
@@ -59,13 +64,20 @@ public class WebServer {
                 throw new RuntimeException(e);
             }
 
-            String response = "Your image was drawn successfully ^_^";
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write( img, "bmp", baos );
+            baos.flush();
+            byte[] imageInByte = baos.toByteArray();
+            baos.close();
+
+
             //Get the right information from the request
-            t.sendResponseHeaders(200, response.length());
+            t.getResponseHeaders().set("Content-Type", "image/jpeg");
+
+            t.sendResponseHeaders(200, imageInByte.length);
             OutputStream os = t.getResponseBody();
-            os.write(response.getBytes());
+            os.write(imageInByte);
             os.close();
         }
     }
-
 }

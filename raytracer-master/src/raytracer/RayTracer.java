@@ -129,7 +129,7 @@ public class RayTracer {
 	}
 
 
-	public void draw(File outFile) throws IOException, InterruptedException {
+	public BufferedImage draw(File outFile) throws IOException, InterruptedException {
 		final BufferedImage image = new BufferedImage(wcols, wrows, BufferedImage.TYPE_INT_RGB);
 
 		long start = System.currentTimeMillis();
@@ -162,7 +162,7 @@ public class RayTracer {
 
 		Log.info("Finished in: " + (System.currentTimeMillis()-start) + "ms");
 
-		ImageIO.write(image, "bmp", outFile);
+		return  image;
 	}
 
 

@@ -1,5 +1,6 @@
 package raytracer;
 
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.Scanner;
@@ -34,7 +35,7 @@ public class Main {
 		System.out.println(USAGE);
 	}
 
-	public static void main(String[] args) throws IOException, InterruptedException {
+	public static BufferedImage render(String[] args) throws IOException, InterruptedException {
 		if(args.length < 8) {
 			printUsage();
 			System.exit(0);
@@ -76,7 +77,7 @@ public class Main {
 				rayTracer.getPixelColor(col, row);
 			}
 		} else {
-			rayTracer.draw(outFile);
+			return rayTracer.draw(outFile);
 		}
 	}
 }
