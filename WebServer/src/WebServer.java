@@ -10,6 +10,8 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.codec.binary.StringUtils;
 import raytracer.*;
 
 import javax.imageio.ImageIO;
@@ -71,12 +73,18 @@ public class WebServer {
             baos.close();
 
 
-            //Get the right information from the request
-            t.getResponseHeaders().set("Content-Type", "image/jpeg");
+            StringBuilder sb = new StringBuilder();
+            sb.append("data:image/png;base64,");
+            sb.append(StringUtils.newStringUtf8(Base64.encodeBase64(imageInByte, false)));
+            String newImage = sb.toString();
 
-            t.sendResponseHeaders(200, imageInByte.length);
+
+            //Get the right information from the request
+            t.getResponseHeaders().set("Content-Type", "image/bmp");
+
+            t.sendResponseHeaders(200, ("<img src="+newImage+" />").getBytes().length);
             OutputStream os = t.getResponseBody();
-            os.write(imageInByte);
+            os.write(("<img src="+newImage+" />").getBytes());
             os.close();
         }
     }
