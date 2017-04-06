@@ -66,6 +66,8 @@ public class WebServer {
                 throw new RuntimeException(e);
             }
 
+
+            //Convert BufferedImage to Byte array
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ImageIO.write( img, "bmp", baos );
             baos.flush();
