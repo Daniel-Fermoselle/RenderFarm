@@ -8,5 +8,6 @@
 *.iml
 /out/
 /web/
+/bin/
 /src/META-INF/
 *.class
