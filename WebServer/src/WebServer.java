@@ -12,7 +12,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.binary.StringUtils;
-import raytracer.*;
+import raytracer.Main;
 
 import javax.imageio.ImageIO;
 

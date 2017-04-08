@@ -8,4 +8,5 @@
 *.iml
 /out/
 /web/
+/src/META-INF/
 *.class
