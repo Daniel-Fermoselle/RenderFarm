@@ -77,13 +77,13 @@ public class WebServer {
 
 
             StringBuilder sb = new StringBuilder();
-            sb.append("data:image/png;base64,");
+            sb.append("data:image/bmp;base64,");
             sb.append(StringUtils.newStringUtf8(Base64.encodeBase64(imageInByte, false)));
             String newImage = sb.toString();
 
 
             //Get the right information from the request
-            t.getResponseHeaders().set("Content-Type", "image/bmp");
+            t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
 
             t.sendResponseHeaders(200, ("<img src="+newImage+" />").getBytes().length);
             OutputStream os = t.getResponseBody();
