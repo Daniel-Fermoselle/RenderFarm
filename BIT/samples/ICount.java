@@ -32,7 +32,7 @@ public class ICount {
 
         for (int i = 0; i < infilenames.length; i++) {
             String infilename = infilenames[i];
-            if (infilename.startsWith("Main.class") || infilename.startsWith("RayTracer.class")) {
+            if (infilename.startsWith("Main.class")) {
                 // create class info object
                 ClassInfo ci = new ClassInfo(argv[0] + System.getProperty("file.separator") + infilename);
 
@@ -42,9 +42,11 @@ public class ICount {
                     Routine routine = (Routine) e.nextElement();
                     routine.addBefore("ICount", "methodIn", routine.getMethodName());
                     routine.addAfter("ICount", "methodOut", routine.getMethodName());
+                    if (routine.getMethodName().startsWith("render")) {
+                        routine.addAfter("ICount", "writeToFile", "Ola");
+                    }
                 }
 
-                ci.addAfter("ICount", "writeToFile", "Ola");
 
                 ci.write(argv[1] + System.getProperty("file.separator") + infilename);
             }
