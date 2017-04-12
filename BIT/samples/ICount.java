@@ -40,9 +40,11 @@ public class ICount {
                 // see java.util.Enumeration for more information on Enumeration class
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
+                    routine.addBefore("ICount", "nbThreads", routine.getMethodName());
                     routine.addBefore("ICount", "methodIn", routine.getMethodName());
                     routine.addAfter("ICount", "methodOut", routine.getMethodName());
                     if (routine.getMethodName().startsWith("render")) {
+                        routine.addBefore("ICount", "writeToFile", "Ola");
                         routine.addAfter("ICount", "writeToFile", "Ola");
                     }
                 }
@@ -51,6 +53,22 @@ public class ICount {
                 ci.write(argv[1] + System.getProperty("file.separator") + infilename);
             }
         }
+    }
+
+    public static synchronized void nbThreads(String methodName) {
+        int count = Thread.activeCount();
+        int waiting = 0;
+        Thread threads[] = new Thread[count];
+        Thread.enumerate(threads);
+
+        for (Thread thread : threads) {
+            if(thread.getState().equals(Thread.State.WAITING)){
+                waiting++;
+            }
+        }
+
+        template += "There is " + (count - 4) + " online and " + waiting + " are idle\n";
+
     }
 
     public static synchronized void methodIn(String methodName) {
