@@ -6,16 +6,13 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 
-public class ICount {
+public class RayTracerInstrument {
     private static long[] intersections = {0,0,0,0,0};
     private static long[] successfulIntersections = {0,0,0,0,0};
     private static long[] traces = {0,0,0,0,0};
     private static int[] counter = {0,0,0,0,0};
+    private static int NON_RELEVANT_THREADS = 3;
 
-    /*
-     * main reads in all the files class files present in the input directory,
-     * instruments them, and outputs them to the specified output directory.
-     */
     public static void main(String argv[]) {
 
         String shapesInputPath = argv[0] + System.getProperty("file.separator") + "shapes";
@@ -33,7 +30,7 @@ public class ICount {
                     for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                         Routine routine = (Routine) e.nextElement();
                         if (routine.getMethodName().startsWith("intersect")) {
-                            routine.addBefore("ICount", "incIntersections", "Nothing");
+                            routine.addBefore("RayTracerInstrument", "incIntersections", "Nothing");
                         }
                     }
                 }
@@ -49,22 +46,17 @@ public class ICount {
             if (infilename.endsWith("Main.class") || infilename.endsWith("RayTracer.class")) {
                 ClassInfo ci = new ClassInfo(argv[0] + System.getProperty("file.separator") + infilename);
                 // loop through all the routines
-                // see java.util.Enumeration for more information on Enumeration
-                // class
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
-                    //routine.addBefore("ICount", "methodIn", routine.getMethodName());
-                    //routine.addAfter("ICount", "methodOut", routine.getMethodName());
                     if (routine.getMethodName().startsWith("render")) {
-                        routine.addBefore("ICount", "nbThreads", routine.getMethodName());
-                        routine.addBefore("ICount", "writeStart", "Nothing");
-                        routine.addAfter("ICount", "nbThreads", routine.getMethodName());
-                        routine.addAfter("ICount", "writeMetrics", "Nothing");
-                        routine.addAfter("ICount", "writeToFile", "Main");
+                        routine.addBefore("RayTracerInstrument", "nbThreads", routine.getMethodName());
+                        routine.addBefore("RayTracerInstrument", "writeStart", "Nothing");
+                        routine.addAfter("RayTracerInstrument", "nbThreads", routine.getMethodName());
+                        routine.addAfter("RayTracerInstrument", "writeMetrics", "Nothing");
                     } else if (routine.getMethodName().startsWith("shade")) {
-                        routine.addBefore("ICount", "incSuccessfulIntersections", "Nothing");
+                        routine.addBefore("RayTracerInstrument", "incSuccessfulIntersections", "Nothing");
                     } else if (routine.getMethodName().startsWith("trace")) {
-                        routine.addBefore("ICount", "incTraces", "Nothing");
+                        routine.addBefore("RayTracerInstrument", "incTraces", "Nothing");
                     }
                 }
                 ci.write(argv[1] + System.getProperty("file.separator") + infilename);
@@ -75,12 +67,11 @@ public class ICount {
                 ClassInfo ci = new ClassInfo(argv[0] + System.getProperty("file.separator") + infilename);
 
                 // loop through all the routines
-                // see java.util.Enumeration for more information on Enumeration class
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
-                    routine.addBefore("ICount", "methodCount", routine.getMethodName());
+                    routine.addBefore("RayTracerInstrument", "methodCount", routine.getMethodName());
                     if (routine.getMethodName().startsWith("draw")) {
-                        routine.addAfter("ICount", "writeToFile", ci.getClassName());
+                        routine.addAfter("RayTracerInstrument", "writeToFile", ci.getClassName());
                     }
                 }
 
@@ -102,7 +93,7 @@ public class ICount {
             }
         }
 
-        String toWrite = "There is " + (count - 3) + " online and " + waiting + " are idle\n";
+        String toWrite = "There is " + (count - NON_RELEVANT_THREADS) + " online and " + waiting + " are idle\n";
         try {
             Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
