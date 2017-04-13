@@ -24,6 +24,7 @@ public class ICount {
 	private static PrintStream out = null;
 	private static long intersections = 0;
 	private static long successfulIntersections = 0;
+	private static long traces = 0;
 
 	/*
 	 * main reads in all the files class files present in the input directory,
@@ -42,12 +43,9 @@ public class ICount {
 				ClassInfo ci = new ClassInfo(shapesInputPath + System.getProperty("file.separator") + infilename);
 				// loop through all the routines
 				if ("raytracer/shapes/Shape".equals(ci.getSuperClassName())) {
-					System.out.println(ci.getClassName() + "<----------- It's me");
 					for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements();) {
 						Routine routine = (Routine) e.nextElement();
 						if (routine.getMethodName().startsWith("intersect")) {
-							System.out.println(
-									routine.getMethodName() + "<----------- It's my intersect " + ci.getClassName());
 							routine.addBefore("ICount", "incIntersections", "Nothing");
 						}
 					}
@@ -69,10 +67,14 @@ public class ICount {
 				for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements();) {
 					Routine routine = (Routine) e.nextElement();
 					if (routine.getMethodName().startsWith("render")) {
-						routine.addAfter("ICount", "writeToFile", "Nothing");
+						routine.addBefore("ICount", "writeStart", "Nothing");
+						routine.addAfter("ICount", "writeMetrics", "Nothing");
 					}
 					else if (routine.getMethodName().startsWith("shade")) {
 						routine.addBefore("ICount", "incSuccessfulIntersections", "Nothing");
+					}
+					else if (routine.getMethodName().startsWith("trace")) {
+						routine.addBefore("ICount", "incTraces", "Nothing");
 					}
 				}
 				ci.write(argv[1] + System.getProperty("file.separator") + infilename);
@@ -88,15 +90,31 @@ public class ICount {
 	public static synchronized void incSuccessfulIntersections(String methodName) {
 		successfulIntersections++;
 	}
+	
+	public static synchronized void incTraces(String methodName) {
+		traces++;
+	}
+	
+	public static synchronized void writeStart(String s) {
+		try {
+			String toWrite = Thread.currentThread().getId() + "-Started\n";
+			Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 
-	public static synchronized void writeToFile(String s) {
+	public static synchronized void writeMetrics(String s) {
 		try {
 			Long i = new Long(intersections);
 			Long si = new Long(successfulIntersections);
+			Long t = new Long(traces);
 			Double successFactor = new Double(si*100.0/i);
-			String toWrite = "intersections=" + i.toString() + "\n" +
-							 "successfulIntersections=" + si.toString() + "\n" +
-							 "successFactor=" + successFactor + "\n";
+			String toWrite = "\tintersections=" + i.toString() + "\n" +
+							 "\tsuccessfulIntersections=" + si.toString() + "\n" +
+							 "\tsuccessFactor=" + successFactor + "\n" + 
+							 "\ttraces=" + t.toString() + "\n" +
+							 Thread.currentThread().getId() + "-Ended\n";
 			Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
 		} catch (IOException e) {
 			e.printStackTrace();
