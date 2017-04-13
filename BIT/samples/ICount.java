@@ -7,12 +7,15 @@ import java.util.*;
 
 public class ICount {
     private static PrintStream out = null;
-    private final static String templateInitMain = "==============================\n"+
+    private final static String TEMPLATE_INIT_MAIN = "==============================\n"+
     											   "=====INSTRUMENTATION INIT=====\n"+
     											   "==============================\n";
-    private final static String templateRaytracerCall = "==============================\n"+
-		 	   								   			"=====RAYTRACER INIT=====\n"+
+    private final static String TEMPLATE_RAYTRACER_CALL = "==============================\n"+
+		 	   								   			"========RAYTRACER INIT========\n"+
 		 	   								   			"==============================\n";
+    private final static String TEMPLATE_RAYTRACER_CALL_END = "==============================\n"+
+	   													   "========RAYTRACER END=========\n"+
+	   													   "==============================\n";
     private static String template = "";
     private static int counter = 0;
 
@@ -78,14 +81,15 @@ public class ICount {
     }
     
     public static synchronized void classCount(String methodName) {
-        template += templateRaytracerCall;
+        template += TEMPLATE_RAYTRACER_CALL;
         template += "For class " + methodName + " in thread " + Thread.currentThread().getId() 
         		+ " there were " + counter + " methods run.\n";
         counter=0;
+        template += TEMPLATE_RAYTRACER_CALL_END;
     }
     
     public static synchronized void addTemplateInitMain(String methodName) {
-        template += templateInitMain;
+        template += TEMPLATE_INIT_MAIN;
     }
    
     public static synchronized void writeToFile(String ola) {
