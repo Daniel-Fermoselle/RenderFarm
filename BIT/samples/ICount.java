@@ -7,22 +7,9 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 
 public class ICount {
-    private static PrintStream out = null;
     private static long intersections = 0;
     private static long successfulIntersections = 0;
     private static long traces = 0;
-    private static String template = "";
-
-
-    private final static String TEMPLATE_INIT_MAIN = "==============================\n" +
-            "=====INSTRUMENTATION INIT=====\n" +
-            "==============================\n";
-    private final static String TEMPLATE_RAYTRACER_CALL = "==============================\n" +
-            "========RAYTRACER INIT========\n" +
-            "==============================\n";
-    private final static String TEMPLATE_RAYTRACER_CALL_END = "==============================\n" +
-            "========RAYTRACER END=========\n" +
-            "==============================\n";
     private static int counter = 0;
 
     /*
@@ -64,7 +51,6 @@ public class ICount {
                 // loop through all the routines
                 // see java.util.Enumeration for more information on Enumeration
                 // class
-                ci.addBefore("ICount", "addTemplateInitMain", "Main");
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
                     //routine.addBefore("ICount", "methodIn", routine.getMethodName());
@@ -93,12 +79,8 @@ public class ICount {
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
                     routine.addBefore("ICount", "methodCount", routine.getMethodName());
-                    if (routine.getMethodName().startsWith("<init>")) {
-                        routine.addAfter("ICount", "getClassArgs", "ola");
-                    }
                     if (routine.getMethodName().startsWith("draw")) {
-                        routine.addAfter("ICount", "classCount", ci.getClassName());
-                        routine.addAfter("ICount", "writeToFile", "RayTracer");
+                        routine.addAfter("ICount", "writeToFile", ci.getClassName());
                     }
                 }
 
@@ -170,41 +152,19 @@ public class ICount {
         }
     }
 
-    public static synchronized void methodIn(String methodName) {
-        template += "Entrei no metodo " + methodName + " Sou a thread " + Thread.currentThread().getId() + "\n";
-    }
-
-    public static synchronized void methodOut(String methodName) {
-        template += "Sai do metodo " + methodName + " Sou a thread " + Thread.currentThread().getId() + "\n";
-    }
-
     public static synchronized void methodCount(String methodName) {
         counter += 1;
     }
 
-    public static synchronized void classCount(String methodName) {
-        template += TEMPLATE_RAYTRACER_CALL;
-        template += "For class " + methodName + " in thread " + Thread.currentThread().getId()
-                + " there were " + counter + " methods run.\n";
-        counter = 0;
-        template += TEMPLATE_RAYTRACER_CALL_END;
-    }
-
-    public static synchronized void addTemplateInitMain(String methodName) {
-        template += TEMPLATE_INIT_MAIN;
-    }
-
-    public static synchronized void getClassArgs(String methodName) {
-        template += "============INIT================\n";
-    }
-
-    public static synchronized void writeToFile(String ola) {
+    public static synchronized void writeToFile(String methodName) {
         try {
-            Files.write(Paths.get("metadata.in"), template.getBytes(), StandardOpenOption.APPEND);
+        	String toWrite = "For class " + methodName + " in thread " + Thread.currentThread().getId()
+                    + " there were " + counter + " methods run.\n";
+            counter = 0;
+            Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
             e.printStackTrace();
         }
-
     }
 
 }
