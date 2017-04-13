@@ -6,7 +6,6 @@ import java.util.*;
 
 
 public class ICount {
-    private static PrintStream out = null;
     private final static String TEMPLATE_INIT_MAIN = "==============================\n"+
     											   "=====INSTRUMENTATION INIT=====\n"+
     											   "==============================\n";
@@ -56,6 +55,9 @@ public class ICount {
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
                     routine.addBefore("ICount", "methodCount", routine.getMethodName());
+                    if (routine.getMethodName().startsWith("<init>")) {
+                    	routine.addAfter("ICount", "getClassArgs", "ola");
+                    }
                     if (routine.getMethodName().startsWith("draw")) {
                     	routine.addAfter("ICount", "classCount", ci.getClassName());
                         routine.addAfter("ICount", "writeToFile", "RayTracer");
@@ -81,7 +83,7 @@ public class ICount {
     }
     
     public static synchronized void classCount(String methodName) {
-        template += TEMPLATE_RAYTRACER_CALL;
+    	template += TEMPLATE_RAYTRACER_CALL;
         template += "For class " + methodName + " in thread " + Thread.currentThread().getId() 
         		+ " there were " + counter + " methods run.\n";
         counter=0;
@@ -90,6 +92,10 @@ public class ICount {
     
     public static synchronized void addTemplateInitMain(String methodName) {
         template += TEMPLATE_INIT_MAIN;
+    }
+    
+    public static synchronized void getClassArgs(String methodName) {
+    	template += "============INIT================\n";
     }
    
     public static synchronized void writeToFile(String ola) {
