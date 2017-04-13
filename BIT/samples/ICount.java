@@ -7,10 +7,10 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 
 public class ICount {
-    private static long intersections = 0;
-    private static long successfulIntersections = 0;
-    private static long traces = 0;
-    private static int counter = 0;
+    private static long[] intersections = {0,0,0,0,0};
+    private static long[] successfulIntersections = {0,0,0,0,0};
+    private static long[] traces = {0,0,0,0,0};
+    private static int[] counter = {0,0,0,0,0};
 
     /*
      * main reads in all the files class files present in the input directory,
@@ -102,7 +102,7 @@ public class ICount {
             }
         }
 
-        String toWrite = "There is " + (count - 4) + " online and " + waiting + " are idle\n";
+        String toWrite = "There is " + (count - 3) + " online and " + waiting + " are idle\n";
         try {
             Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
@@ -112,15 +112,24 @@ public class ICount {
     }
 
     public static synchronized void incIntersections(String methodName) {
-        intersections++;
+    	String[] poolName = Thread.currentThread().getName().split("-");
+    	String stringId = poolName[3];
+    	long id = new Long(stringId);
+    	intersections[(int) id]+=1;
     }
 
     public static synchronized void incSuccessfulIntersections(String methodName) {
-        successfulIntersections++;
+    	String[] poolName = Thread.currentThread().getName().split("-");
+    	String stringId = poolName[3];
+    	long id = new Long(stringId);
+        successfulIntersections[(int) id]+=1;
     }
 
     public static synchronized void incTraces(String methodName) {
-        traces++;
+    	String[] poolName = Thread.currentThread().getName().split("-");
+    	String stringId = poolName[3];
+    	long id = new Long(stringId);
+        traces[(int) id]+=1;
     }
 
     public static synchronized void writeStart(String s) {
@@ -134,9 +143,12 @@ public class ICount {
 
     public static synchronized void writeMetrics(String s) {
         try {
-            Long i = new Long(intersections);
-            Long si = new Long(successfulIntersections);
-            Long t = new Long(traces);
+        	String[] poolName = Thread.currentThread().getName().split("-");
+        	String stringId = poolName[3];
+        	long id = new Long(stringId);
+            Long i = new Long(intersections[(int) id]);
+            Long si = new Long(successfulIntersections[(int) id]);
+            Long t = new Long(traces[(int) id]);
             Double successFactor = new Double(si * 100.0 / i);
             String toWrite = "\tintersections=" + i.toString() + "\n" +
                     "\tsuccessfulIntersections=" + si.toString() + "\n" +
@@ -144,23 +156,29 @@ public class ICount {
                     "\ttraces=" + t.toString() + "\n" +
                     Thread.currentThread().getId() + "-Ended\n";
             Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
-            intersections = 0;
-            successfulIntersections = 0;
-            traces = 0;
+            intersections[(int) id] = 0;
+            successfulIntersections[(int) id] = 0;
+            traces[(int) id] = 0;
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
     public static synchronized void methodCount(String methodName) {
-        counter += 1;
+    	String[] poolName = Thread.currentThread().getName().split("-");
+    	String stringId = poolName[3];
+    	long id = new Long(stringId);
+        counter[(int) id] += 1;
     }
 
     public static synchronized void writeToFile(String methodName) {
         try {
+        	String[] poolName = Thread.currentThread().getName().split("-");
+        	String stringId = poolName[3];
+        	long id = new Long(stringId);
         	String toWrite = "For class " + methodName + " in thread " + Thread.currentThread().getId()
-                    + " there were " + counter + " methods run.\n";
-            counter = 0;
+                    + " there were " + counter[(int) id] + " methods run.\n";
+        	counter[(int) id] = 0;
             Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
             e.printStackTrace();
