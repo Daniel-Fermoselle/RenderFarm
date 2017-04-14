@@ -126,7 +126,12 @@ public class RayTracerInstrument {
     public static synchronized void writeStart(String s) {
         try {
             String toWrite = Thread.currentThread().getId() + "-Started\n";
-            Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+            File f = new File("metadata.in");
+            if(f.exists() && !f.isDirectory()) {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+            } else {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -146,7 +151,12 @@ public class RayTracerInstrument {
                     "\tsuccessFactor=" + successFactor + "\n" +
                     "\ttraces=" + t.toString() + "\n" +
                     Thread.currentThread().getId() + "-Ended\n";
-            Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+            File f = new File("metadata.in");
+            if(f.exists() && !f.isDirectory()) {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+            } else {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
+            }
             intersections[(int) id] = 0;
             successfulIntersections[(int) id] = 0;
             traces[(int) id] = 0;
@@ -170,7 +180,12 @@ public class RayTracerInstrument {
         	String toWrite = "For class " + methodName + " in thread " + Thread.currentThread().getId()
                     + " there were " + counter[(int) id] + " methods run.\n";
         	counter[(int) id] = 0;
-            Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+            File f = new File("metadata.in");
+            if(f.exists() && !f.isDirectory()) {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+            } else {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
