@@ -7,10 +7,12 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 
 public class RayTracerInstrument {
+	//---------Arrays to save the data for each one of the 5 threads--------//
     private static long[] intersections = {0,0,0,0,0};
     private static long[] successfulIntersections = {0,0,0,0,0};
     private static long[] traces = {0,0,0,0,0};
     private static int[] counter = {0,0,0,0,0};
+    //---------Arrays to save the data for each one of the 5 threads--------//
     private static int NON_RELEVANT_THREADS = 3;
     private static int THREAD_NAME_SPLIT_ID = 3;
 
@@ -67,11 +69,14 @@ public class RayTracerInstrument {
                 // create class info object
                 ClassInfo ci = new ClassInfo(argv[0] + System.getProperty("file.separator") + infilename);
 
-                // loop through all the routines
+                //loop through all the routines and for each one of them the counter of methods is incremented
+                //i.e this part of the code will count the number of method calls that were done while rendering one request
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
                     routine.addBefore("RayTracerInstrument", "methodCount", routine.getMethodName());
                     if (routine.getMethodName().startsWith("draw")) {
+                    	//As the draw method is the last one called by the raytracer is in this method that all the information
+                    	//gathered will be written into the file
                         routine.addAfter("RayTracerInstrument", "writeToFile", ci.getClassName());
                     }
                 }
@@ -171,6 +176,7 @@ public class RayTracerInstrument {
         }
     }
 
+    //This method as it is stated in the name will count the number of all methods called while drawing 1 request for a thread
     public static synchronized void methodCount(String methodName) {
     	String[] poolName = Thread.currentThread().getName().split("-");
     	String stringId = poolName[THREAD_NAME_SPLIT_ID];
@@ -178,6 +184,8 @@ public class RayTracerInstrument {
         counter[(int) id] += 1;
     }
 
+    //This method will write the method count information for a thread previously stored in memory to a file
+    //If the file doesn't exist it will be crated
     public static synchronized void writeToFile(String methodName) {
         try {
         	String[] poolName = Thread.currentThread().getName().split("-");
