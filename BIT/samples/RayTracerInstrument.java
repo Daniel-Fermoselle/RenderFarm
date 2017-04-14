@@ -12,6 +12,7 @@ public class RayTracerInstrument {
     private static long[] traces = {0,0,0,0,0};
     private static int[] counter = {0,0,0,0,0};
     private static int NON_RELEVANT_THREADS = 3;
+    private static int THREAD_NAME_SPLIT_ID = 3;
 
     public static void main(String argv[]) {
 
@@ -95,7 +96,12 @@ public class RayTracerInstrument {
 
         String toWrite = "There is " + (count - NON_RELEVANT_THREADS) + " online and " + waiting + " are idle\n";
         try {
-            Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+        	File f = new File("metadata.in");
+        	if(f.exists() && !f.isDirectory()) {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
+            } else {
+                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -104,21 +110,21 @@ public class RayTracerInstrument {
 
     public static synchronized void incIntersections(String methodName) {
     	String[] poolName = Thread.currentThread().getName().split("-");
-    	String stringId = poolName[3];
+    	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
     	intersections[(int) id]+=1;
     }
 
     public static synchronized void incSuccessfulIntersections(String methodName) {
     	String[] poolName = Thread.currentThread().getName().split("-");
-    	String stringId = poolName[3];
+    	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
         successfulIntersections[(int) id]+=1;
     }
 
     public static synchronized void incTraces(String methodName) {
     	String[] poolName = Thread.currentThread().getName().split("-");
-    	String stringId = poolName[3];
+    	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
         traces[(int) id]+=1;
     }
@@ -140,7 +146,7 @@ public class RayTracerInstrument {
     public static synchronized void writeMetrics(String s) {
         try {
         	String[] poolName = Thread.currentThread().getName().split("-");
-        	String stringId = poolName[3];
+        	String stringId = poolName[THREAD_NAME_SPLIT_ID];
         	long id = new Long(stringId);
             Long i = new Long(intersections[(int) id]);
             Long si = new Long(successfulIntersections[(int) id]);
@@ -167,7 +173,7 @@ public class RayTracerInstrument {
 
     public static synchronized void methodCount(String methodName) {
     	String[] poolName = Thread.currentThread().getName().split("-");
-    	String stringId = poolName[3];
+    	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
         counter[(int) id] += 1;
     }
@@ -175,7 +181,7 @@ public class RayTracerInstrument {
     public static synchronized void writeToFile(String methodName) {
         try {
         	String[] poolName = Thread.currentThread().getName().split("-");
-        	String stringId = poolName[3];
+        	String stringId = poolName[THREAD_NAME_SPLIT_ID];
         	long id = new Long(stringId);
         	String toWrite = "For class " + methodName + " in thread " + Thread.currentThread().getId()
                     + " there were " + counter[(int) id] + " methods run.\n";
