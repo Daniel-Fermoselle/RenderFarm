@@ -8,10 +8,10 @@ import java.util.*;
 
 public class RayTracerInstrument {
 	//---------Arrays to save the data for each one of the 5 threads--------//
-    private static long[] intersections = {0,0,0,0,0};
-    private static long[] successfulIntersections = {0,0,0,0,0};
-    private static long[] traces = {0,0,0,0,0};
-    private static int[] counter = {0,0,0,0,0};
+    private static long[] intersections = {0, 0, 0, 0, 0};
+    private static long[] successfulIntersections = {0, 0, 0, 0, 0};
+    private static long[] traces = {0, 0, 0, 0, 0};
+    private static int[] counter = {0, 0, 0, 0, 0};
     //---------Arrays to save the data for each one of the 5 threads--------//
     private static int NON_RELEVANT_THREADS = 3;
     private static int THREAD_NAME_SPLIT_ID = 3;
@@ -117,21 +117,21 @@ public class RayTracerInstrument {
     	String[] poolName = Thread.currentThread().getName().split("-");
     	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
-    	intersections[(int) id]+=1;
+    	intersections[((int) id) - 1]+=1;
     }
 
     public static synchronized void incSuccessfulIntersections(String methodName) {
     	String[] poolName = Thread.currentThread().getName().split("-");
     	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
-        successfulIntersections[(int) id]+=1;
+        successfulIntersections[((int) id) - 1]+=1;
     }
 
     public static synchronized void incTraces(String methodName) {
     	String[] poolName = Thread.currentThread().getName().split("-");
     	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
-        traces[(int) id]+=1;
+        traces[((int) id) - 1]+=1;
     }
 
     public static synchronized void writeStart(String s) {
@@ -153,9 +153,9 @@ public class RayTracerInstrument {
         	String[] poolName = Thread.currentThread().getName().split("-");
         	String stringId = poolName[THREAD_NAME_SPLIT_ID];
         	long id = new Long(stringId);
-            Long i = new Long(intersections[(int) id]);
-            Long si = new Long(successfulIntersections[(int) id]);
-            Long t = new Long(traces[(int) id]);
+            Long i = new Long(intersections[((int) id) - 1]);
+            Long si = new Long(successfulIntersections[((int) id) - 1]);
+            Long t = new Long(traces[((int) id) - 1]);
             Double successFactor = new Double(si * 100.0 / i);
             String toWrite = "\tintersections=" + i.toString() + "\n" +
                     "\tsuccessfulIntersections=" + si.toString() + "\n" +
@@ -168,9 +168,9 @@ public class RayTracerInstrument {
             } else {
                 Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
             }
-            intersections[(int) id] = 0;
-            successfulIntersections[(int) id] = 0;
-            traces[(int) id] = 0;
+            intersections[((int) id) - 1] = 0;
+            successfulIntersections[((int) id) - 1] = 0;
+            traces[((int) id) - 1] = 0;
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -181,7 +181,7 @@ public class RayTracerInstrument {
     	String[] poolName = Thread.currentThread().getName().split("-");
     	String stringId = poolName[THREAD_NAME_SPLIT_ID];
     	long id = new Long(stringId);
-        counter[(int) id] += 1;
+        counter[((int) id) - 1] += 1;
     }
 
     //This method will write the method count information for a thread previously stored in memory to a file
@@ -192,8 +192,8 @@ public class RayTracerInstrument {
         	String stringId = poolName[THREAD_NAME_SPLIT_ID];
         	long id = new Long(stringId);
         	String toWrite = "For class " + methodName + " in thread " + Thread.currentThread().getId()
-                    + " there were " + counter[(int) id] + " methods run.\n";
-        	counter[(int) id] = 0;
+                    + " there were " + counter[((int) id) - 1] + " methods run.\n";
+        	counter[((int) id) - 1] = 0;
             File f = new File("metadata.in");
             if(f.exists() && !f.isDirectory()) {
                 Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
