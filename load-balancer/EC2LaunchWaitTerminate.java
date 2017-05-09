@@ -142,6 +142,7 @@ public class EC2LaunchWaitTerminate {
             Thread.sleep(60000);
             System.out.println("Terminating the instance.");
             TerminateInstancesRequest termInstanceReq = new TerminateInstancesRequest();
+
             termInstanceReq.withInstanceIds(newInstanceId);
             ec2.terminateInstances(termInstanceReq);
             

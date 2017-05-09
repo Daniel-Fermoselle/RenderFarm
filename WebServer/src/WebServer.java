@@ -24,8 +24,7 @@ public class WebServer {
         server.createContext("/test", new MyHandler());
         server.setExecutor(null); // creates a default executor
 
-        //TODO Set the right context
-        server.createContext("/r", new RayTracerHandler());
+        server.createContext("/r.html", new RayTracerHandler());
         server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
         server.start();
     }

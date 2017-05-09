@@ -10,17 +10,38 @@ import com.amazonaws.services.ec2.model.Reservation;
 import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancing;
 import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancingClient;
 import com.amazonaws.services.elasticloadbalancing.model.*;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.URL;
+import java.util.*;
+import java.util.concurrent.Executors;
 
 
 public class LoadBalancer {
 
-    static AmazonEC2 ec2;
-    static AmazonElasticLoadBalancing elb;
+    private static final String LOAD_BALANCER_NAME = "RenderFarmLB";
 
+    private static AmazonEC2 ec2;
+
+    private static AmazonElasticLoadBalancing elb;
+
+    private static List<Instance> instances;
+
+    public static void main(String[] args) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
+        init();
+        server.createContext("/test", new MyHandler());
+        server.setExecutor(null); // creates a default executor
+
+        server.createContext("/r.html", new RayTracerLBHandler());
+        server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
+        server.start();
+    }
 
     /**
      * The only information needed to create a client are security credentials
@@ -54,53 +75,73 @@ public class LoadBalancer {
                 new AWSStaticCredentialsProvider(credentials)).build();
         elb = AmazonElasticLoadBalancingClient.builder().withRegion("eu-central-1").withCredentials(
                 new AWSStaticCredentialsProvider(credentials)).build();
+
+        getInstances();
+
+        //create thread to from time to time update instances
+
+        //create thread to see if it's needed to instancite more instances
     }
 
-    public static void main(String[] args) throws Exception {
-
-        init();
-
-        //create load balancer
-        CreateLoadBalancerRequest lbRequest = new CreateLoadBalancerRequest();
-        lbRequest.setLoadBalancerName("RayTracerBalancer");
-
-        List<Listener> listeners = new ArrayList<>(1);
-        listeners.add(new Listener("HTTP", 80, 8000));
-        lbRequest.setListeners(listeners);
-
-        String availabilityZone1 = "subnet-a83f45c0 - eu-central-1a";
-        String availabilityZone2 = "subnet-586eed22 - eu-central-1b";
-        lbRequest.withAvailabilityZones(availabilityZone1, availabilityZone2);
-
-        List<String> securityGroups = new ArrayList<>(1);
-        securityGroups.add("sg-2fa07044");
-        lbRequest.setSecurityGroups(securityGroups);
-
-        CreateLoadBalancerResult lbResult = elb.createLoadBalancer(lbRequest);
-        System.out.println("created load balancer loader");
-
-        //get the running instances
+    private static void getInstances() {
         DescribeInstancesResult describeInstancesRequest = ec2.describeInstances();
         List<Reservation> reservations = describeInstancesRequest.getReservations();
-        List<Instance> instances = new ArrayList<Instance>();
+        instances = new ArrayList<Instance>();
 
         for (Reservation reservation : reservations) {
             instances.addAll(reservation.getInstances());
         }
+    }
 
-        //get instance id's
-        String id;
-        List instanceId = new ArrayList();
-        Iterator<Instance> iterator = instances.iterator();
-        while (iterator.hasNext()) {
-            id = iterator.next().getInstanceId();
-            instanceId.add(new com.amazonaws.services.elasticloadbalancing.model.Instance(id));
+    static class MyHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            System.out.println("Got a test  request");
+            String response = "This was the query:" + t.getRequestURI().getQuery() + "##";
+            //Get the right information from the request
+            t.sendResponseHeaders(200, response.length());
+            OutputStream os = t.getResponseBody();
+            os.write(response.getBytes());
+            os.close();
+        }
+    }
+
+    static class RayTracerLBHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            System.out.println("Got a raytracer request");
+            Instance i = getRightInstance();
+            String instanceIp = i.getPublicIpAddress();
+
+            //Forward the request
+            String query = t.getRequestURI().getQuery();
+            URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
+            HttpURLConnection conn = (HttpURLConnection)url.openConnection();
+            conn.setRequestMethod("GET");
+
+            //Get the right information from the request
+            t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
+            String content = getContent(conn.getContent());
+            OutputStream os = t.getResponseBody();
+            os.write(content.getBytes());
+            os.close();
         }
 
-        //register the instances to the balancer
-        RegisterInstancesWithLoadBalancerRequest register = new RegisterInstancesWithLoadBalancerRequest();
-        register.setLoadBalancerName("RayTracerBalancer");
-        register.setInstances(instanceId);
-        RegisterInstancesWithLoadBalancerResult registerWithLoadBalancerResult = elb.registerInstancesWithLoadBalancer(register);
+        private String getContent(Object content) throws IOException {
+            InputStreamReader in = new InputStreamReader((InputStream) content);
+            BufferedReader buff = new BufferedReader(in);
+            String line;
+            StringBuffer text = new StringBuffer();
+            do {
+                line = buff.readLine();
+                text.append(line + "\n");
+            } while (line != null);
+            return text.toString();
+        }
+
+        private Instance getRightInstance() {
+            //Get right instance
+            return instances.get(0);
+        }
     }
 }
