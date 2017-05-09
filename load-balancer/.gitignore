@@ -1,0 +1,11 @@
+/target/
+.classpath
+.settings
+.project
+.DS_Store
+.*.swp
+/.idea/
+*.iml
+/out/
+/web/
+/bin/
