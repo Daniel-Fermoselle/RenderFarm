@@ -33,7 +33,7 @@ public class LoadBalancer {
     private static List<Instance> instances;
 
     public static void main(String[] args) throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(8001), 0);
         init();
         server.createContext("/test", new MyHandler());
         server.setExecutor(null); // creates a default executor
@@ -76,11 +76,11 @@ public class LoadBalancer {
         elb = AmazonElasticLoadBalancingClient.builder().withRegion("eu-central-1").withCredentials(
                 new AWSStaticCredentialsProvider(credentials)).build();
 
-        getInstances();
+        //getInstances();
 
-        //create thread to from time to time update instances
+        //create thread to from time to time to update instances
 
-        //create thread to see if it's needed to instancite more instances
+        //create thread to see if it's needed for more machines to be initialized
     }
 
     private static void getInstances() {
@@ -110,18 +110,28 @@ public class LoadBalancer {
         @Override
         public void handle(HttpExchange t) throws IOException {
             System.out.println("Got a raytracer request");
-            Instance i = getRightInstance();
-            String instanceIp = i.getPublicIpAddress();
+           // Instance i = getRightInstance();
+           // String instanceIp = i.getPublicIpAddress();
 
             //Forward the request
             String query = t.getRequestURI().getQuery();
-            URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
+           // URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
+            URL url = new URL("http://localhost:8000/r.html" + "?" + query);
             HttpURLConnection conn = (HttpURLConnection)url.openConnection();
             conn.setRequestMethod("GET");
 
             //Get the right information from the request
-            t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
+            t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+
+
+            Object o = conn.getContent();
+            System.out.println("I got a " + o.getClass().getName());
+            System.out.println(conn.getContentLength());
+            System.out.println(conn.getResponseCode());
             String content = getContent(conn.getContent());
+
+            t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
+
             OutputStream os = t.getResponseBody();
             os.write(content.getBytes());
             os.close();
@@ -130,12 +140,13 @@ public class LoadBalancer {
         private String getContent(Object content) throws IOException {
             InputStreamReader in = new InputStreamReader((InputStream) content);
             BufferedReader buff = new BufferedReader(in);
-            String line;
-            StringBuffer text = new StringBuffer();
+            String line = "";
+            StringBuffer text = new StringBuffer("");
             do {
+                text.append(line);
                 line = buff.readLine();
-                text.append(line + "\n");
             } while (line != null);
+            System.out.println(text.toString().length());
             return text.toString();
         }
 
