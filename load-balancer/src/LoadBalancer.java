@@ -24,11 +24,9 @@ import java.util.concurrent.Executors;
 
 public class LoadBalancer {
 
-    private static final String LOAD_BALANCER_NAME = "RenderFarmLB";
+    private static final long INSTANCE_UPDATE_RATE = 2 * 60 * 1000;
 
     private static AmazonEC2 ec2;
-
-    private static AmazonElasticLoadBalancing elb;
 
     private static List<Instance> instances;
 
@@ -43,24 +41,8 @@ public class LoadBalancer {
         server.start();
     }
 
-    /**
-     * The only information needed to create a client are security credentials
-     * consisting of the AWS Access Key ID and Secret Access Key. All other
-     * configuration, such as the service endpoints, are performed
-     * automatically. Client parameters, such as proxies, can be specified in an
-     * optional ClientConfiguration object when constructing a client.
-     *
-     * @see com.amazonaws.auth.BasicAWSCredentials
-     * @see com.amazonaws.auth.PropertiesCredentials
-     * @see com.amazonaws.ClientConfiguration
-     */
     private static void init() throws Exception {
 
-        /*
-         * The ProfileCredentialsProvider will return your [default]
-         * credential profile by reading from the credentials file located at
-         * (~/.aws/credentials).
-         */
         AWSCredentials credentials = null;
         try {
             credentials = new ProfileCredentialsProvider().getCredentials();
@@ -73,14 +55,19 @@ public class LoadBalancer {
         }
         ec2 = AmazonEC2ClientBuilder.standard().withRegion("eu-central-1").withCredentials(
                 new AWSStaticCredentialsProvider(credentials)).build();
-        elb = AmazonElasticLoadBalancingClient.builder().withRegion("eu-central-1").withCredentials(
-                new AWSStaticCredentialsProvider(credentials)).build();
 
         //getInstances();
 
         //create thread to from time to time to update instances
+        Timer timer = new Timer();
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("Going to update the instances that I know");
+                //getInstances();
+            }
+        }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
 
-        //create thread to see if it's needed for more machines to be initialized
     }
 
     private static void getInstances() {
@@ -110,28 +97,19 @@ public class LoadBalancer {
         @Override
         public void handle(HttpExchange t) throws IOException {
             System.out.println("Got a raytracer request");
-           // Instance i = getRightInstance();
-           // String instanceIp = i.getPublicIpAddress();
+            Instance i = getRightInstance();
+            String instanceIp = i.getPublicIpAddress();
 
             //Forward the request
             String query = t.getRequestURI().getQuery();
-           // URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
-            URL url = new URL("http://localhost:8000/r.html" + "?" + query);
+            URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
             HttpURLConnection conn = (HttpURLConnection)url.openConnection();
             conn.setRequestMethod("GET");
 
             //Get the right information from the request
-            t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
-
-
-            Object o = conn.getContent();
-            System.out.println("I got a " + o.getClass().getName());
-            System.out.println(conn.getContentLength());
-            System.out.println(conn.getResponseCode());
-            String content = getContent(conn.getContent());
-
             t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
-
+            t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            String content = getContent(conn.getContent());
             OutputStream os = t.getResponseBody();
             os.write(content.getBytes());
             os.close();
