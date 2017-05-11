@@ -3,6 +3,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.concurrent.Executors;
 
@@ -55,6 +58,9 @@ public class WebServer {
                 arguments.put(pair[0], pair[1]);
             }
 
+            long l = Long.parseLong(arguments.get("wc")) * Long.parseLong(arguments.get("wr"));
+            createFile(arguments.get("f"), l + "");
+
             BufferedImage img;
             try {
                 img = Main.render(new String[]{"inputs/"+arguments.get("f"), "out.bmp",
@@ -65,6 +71,8 @@ public class WebServer {
                 e.printStackTrace();
                 throw new RuntimeException(e);
             }
+
+            //writeToDatabase();
 
 
             //Convert BufferedImage to Byte array
@@ -88,6 +96,17 @@ public class WebServer {
             OutputStream os = t.getResponseBody();
             os.write(("<img src="+newImage+" />").getBytes());
             os.close();
+        }
+
+        private void writeToDatabase() throws IOException {
+            System.out.println(new String(Files.readAllBytes(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"))));
+
+        }
+
+        private void createFile(String f, String resolution) throws IOException {
+            Files.deleteIfExists(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"));
+            String toWrite = "filename=" + f + "\n" + "resolution=" + resolution + "\n";
+            Files.write(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"), toWrite.getBytes(), StandardOpenOption.CREATE_NEW);
         }
     }
 }

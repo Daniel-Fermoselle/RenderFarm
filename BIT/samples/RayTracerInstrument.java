@@ -52,8 +52,6 @@ public class RayTracerInstrument {
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
                     if (routine.getMethodName().startsWith("render")) {
-                        routine.addBefore("RayTracerInstrument", "nbThreads", routine.getMethodName());
-                        routine.addBefore("RayTracerInstrument", "writeStart", "Nothing");
                         routine.addAfter("RayTracerInstrument", "nbThreads", routine.getMethodName());
                         routine.addAfter("RayTracerInstrument", "writeMetrics", "Nothing");
                     } else if (routine.getMethodName().startsWith("shade")) {
@@ -99,14 +97,9 @@ public class RayTracerInstrument {
             }
         }
 
-        String toWrite = "There is " + (count - NON_RELEVANT_THREADS) + " online and " + waiting + " are idle\n";
+        String toWrite = "Threads=" + waiting + "\n";
         try {
-        	File f = new File("metadata.in");
-        	if(f.exists() && !f.isDirectory()) {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
-            } else {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
-            }
+            Files.write(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"), toWrite.getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -134,20 +127,6 @@ public class RayTracerInstrument {
         traces[((int) id) - 1]+=1;
     }
 
-    public static synchronized void writeStart(String s) {
-        try {
-            String toWrite = Thread.currentThread().getId() + "-Started\n";
-            File f = new File("metadata.in");
-            if(f.exists() && !f.isDirectory()) {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
-            } else {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
     public static synchronized void writeMetrics(String s) {
         try {
         	String[] poolName = Thread.currentThread().getName().split("-");
@@ -157,17 +136,8 @@ public class RayTracerInstrument {
             Long si = new Long(successfulIntersections[((int) id) - 1]);
             Long t = new Long(traces[((int) id) - 1]);
             Double successFactor = new Double(si * 100.0 / i);
-            String toWrite = "\tintersections=" + i.toString() + "\n" +
-                    "\tsuccessfulIntersections=" + si.toString() + "\n" +
-                    "\tsuccessFactor=" + successFactor + "\n" +
-                    "\ttraces=" + t.toString() + "\n" +
-                    Thread.currentThread().getId() + "-Ended\n";
-            File f = new File("metadata.in");
-            if(f.exists() && !f.isDirectory()) {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
-            } else {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
-            }
+            String toWrite = "successFactor=" + successFactor + "\n";
+            Files.write(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"), toWrite.getBytes(), StandardOpenOption.APPEND);
             intersections[((int) id) - 1] = 0;
             successfulIntersections[((int) id) - 1] = 0;
             traces[((int) id) - 1] = 0;
@@ -191,15 +161,9 @@ public class RayTracerInstrument {
         	String[] poolName = Thread.currentThread().getName().split("-");
         	String stringId = poolName[THREAD_NAME_SPLIT_ID];
         	long id = new Long(stringId);
-        	String toWrite = "For class " + methodName + " in thread " + Thread.currentThread().getId()
-                    + " there were " + counter[((int) id) - 1] + " methods run.\n";
+        	String toWrite = "methodsRun=" + counter[((int) id) - 1] + "\n";
         	counter[((int) id) - 1] = 0;
-            File f = new File("metadata.in");
-            if(f.exists() && !f.isDirectory()) {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.APPEND);
-            } else {
-                Files.write(Paths.get("metadata.in"), toWrite.getBytes(), StandardOpenOption.CREATE);
-            }
+            Files.write(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"), toWrite.getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
             e.printStackTrace();
         }
