@@ -13,7 +13,6 @@ public class RayTracerInstrument {
     private static long[] traces = {0, 0, 0, 0, 0};
     private static int[] counter = {0, 0, 0, 0, 0};
     //---------Arrays to save the data for each one of the 5 threads--------//
-    private static int NON_RELEVANT_THREADS = 3;
     private static int THREAD_NAME_SPLIT_ID = 3;
 
     public static void main(String argv[]) {
@@ -97,7 +96,7 @@ public class RayTracerInstrument {
             }
         }
 
-        String toWrite = "Threads=" + waiting + "\n";
+        String toWrite = "threads=" + waiting + "\n";
         try {
             Files.write(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"), toWrite.getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
