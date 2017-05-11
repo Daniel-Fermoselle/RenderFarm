@@ -31,8 +31,9 @@ public class LoadBalancer {
     private static List<Instance> instances;
 
     public static void main(String[] args) throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress(8001), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
         init();
+        System.out.println(instances.size());
         server.createContext("/test", new MyHandler());
         server.setExecutor(null); // creates a default executor
 
@@ -56,7 +57,7 @@ public class LoadBalancer {
         ec2 = AmazonEC2ClientBuilder.standard().withRegion("eu-central-1").withCredentials(
                 new AWSStaticCredentialsProvider(credentials)).build();
 
-        //getInstances();
+        getInstances();
 
         //create thread to from time to time to update instances
         Timer timer = new Timer();
@@ -64,7 +65,7 @@ public class LoadBalancer {
             @Override
             public void run() {
                 System.out.println("Going to update the instances that I know");
-                //getInstances();
+                getInstances();
             }
         }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
 
@@ -73,10 +74,17 @@ public class LoadBalancer {
     private static void getInstances() {
         DescribeInstancesResult describeInstancesRequest = ec2.describeInstances();
         List<Reservation> reservations = describeInstancesRequest.getReservations();
+        ArrayList<Instance> tmpInstances = new ArrayList<Instance>();
         instances = new ArrayList<Instance>();
 
         for (Reservation reservation : reservations) {
-            instances.addAll(reservation.getInstances());
+            tmpInstances.addAll(reservation.getInstances());
+        }
+
+        for (Instance instance : tmpInstances) {
+            if(instance.getImageId().equals("ami-d2d103bd") && instance.getState().getCode() == 16) {
+                instances.add(instance);
+            }
         }
     }
 
@@ -107,8 +115,8 @@ public class LoadBalancer {
             conn.setRequestMethod("GET");
 
             //Get the right information from the request
-            t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
             t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
             String content = getContent(conn.getContent());
             OutputStream os = t.getResponseBody();
             os.write(content.getBytes());
