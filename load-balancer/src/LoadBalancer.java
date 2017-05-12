@@ -100,34 +100,14 @@ public class LoadBalancer {
 			TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
 			// wait for the table to move into ACTIVE state
-			TableUtils.waitUntilActive(dynamoDB, tableName);
+			TableUtils.waitUntilActive(dynamoDB, TABLE_NAME);
 
 			// Describe our new table
-			DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(tableName);
+			DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
 			TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
 			System.out.println("Table Description: " + tableDescription);
-
-			// Add an item
-			Map<String, AttributeValue> item = newItem("Bill & Ted's Excellent Adventure", 1989, "****", "James",
-					"Sara");
-			PutItemRequest putItemRequest = new PutItemRequest(tableName, item);
-			PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
-			System.out.println("Result: " + putItemResult);
-
-			// Add another item
-			item = newItem("Airplane", 1980, "*****", "James", "Billy Bob");
-			putItemRequest = new PutItemRequest(tableName, item);
 			putItemResult = dynamoDB.putItem(putItemRequest);
 			System.out.println("Result: " + putItemResult);
-
-			// Scan items for movies with a year attribute greater than 1985
-			HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
-			Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GT.toString())
-					.withAttributeValueList(new AttributeValue().withN("1985"));
-			scanFilter.put("year", condition);
-			ScanRequest scanRequest = new ScanRequest(tableName).withScanFilter(scanFilter);
-			ScanResult scanResult = dynamoDB.scan(scanRequest);
-			System.out.println("Result: " + scanResult);
 
 		} catch (AmazonServiceException ase) {
 			System.out.println("Caught an AmazonServiceException, which means your request made it "
@@ -212,6 +192,14 @@ public class LoadBalancer {
 		}
 
 		private Instance getRightInstance() {
+			// Scan items for movies with a year attribute greater than 1985
+			HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+			Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GT.toString())
+					.withAttributeValueList(new AttributeValue().withN("0"));
+			scanFilter.put("threads", condition);
+			ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
+			ScanResult scanResult = dynamoDB.scan(scanRequest);
+			System.out.println("Result: " + scanResult);
 			// Get right instance
 			return instances.get(0);
 		}
