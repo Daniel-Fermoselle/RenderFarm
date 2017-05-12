@@ -3,19 +3,15 @@ import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
-import com.amazonaws.services.dynamodbv2.model.KeyType;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
+import com.amazonaws.services.dynamodbv2.model.*;
 import com.amazonaws.services.dynamodbv2.util.TableUtils;
 import com.amazonaws.services.ec2.AmazonEC2;
 import com.amazonaws.services.ec2.AmazonEC2ClientBuilder;
 import com.amazonaws.services.ec2.model.DescribeInstancesResult;
 import com.amazonaws.services.ec2.model.Instance;
 import com.amazonaws.services.ec2.model.Reservation;
-import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancing;
-import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancingClient;
-import com.amazonaws.services.elasticloadbalancing.model.*;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -31,8 +27,9 @@ public class LoadBalancer {
 
 	private static final long INSTANCE_UPDATE_RATE = 2 * 60 * 1000;
 	private static final String TABLE_NAME = "MetricStorageSystem";
+    private static final String INSTANCES_AMI_ID = "ami-1d9b4272";
 
-	private static AmazonDynamoDBClient dynamoDB;
+    private static AmazonDynamoDB dynamoDB;
 	private static AmazonEC2 ec2;
 
 	private static List<Instance> instances;
@@ -40,7 +37,8 @@ public class LoadBalancer {
 	public static void main(String[] args) throws Exception {
 		HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
 		init();
-		System.out.println(instances.size());
+        initDatabase();
+        System.out.println(instances.size());
 		server.createContext("/test", new MyHandler());
 		server.setExecutor(null); // creates a default executor
 
@@ -86,17 +84,16 @@ public class LoadBalancer {
 			// Create a table with a primary hash key named 'name', which holds
 			// a string
 			CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(TABLE_NAME)
-					.withKeySchema(new KeySchemaElement().withAttributeName("ip").withKeyType(KeyType.HASH),
-							new KeySchemaElement().withAttributeName("threads").withKeyType(KeyType.RANGE))
+					.withKeySchema(new KeySchemaElement().withAttributeName("ip").withKeyType(KeyType.HASH))
 					.withAttributeDefinitions(
-							new AttributeDefinition().withAttributeName("ip").withAttributeType(ScalarAttributeType.S),
-							new AttributeDefinition().withAttributeName("threads")
-									.withAttributeType(ScalarAttributeType.N))
+							new AttributeDefinition().withAttributeName("ip").withAttributeType(ScalarAttributeType.S))
 					.withProvisionedThroughput(
 							new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
 
+			DeleteTableRequest deleteTableRequest = new DeleteTableRequest().withTableName(TABLE_NAME);
+
 			// Create table if it does not exist yet
-			TableUtils.deleteTableIfExists(dynamoDB, createTableRequest);
+			TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
 			TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
 			// wait for the table to move into ACTIVE state
@@ -106,8 +103,6 @@ public class LoadBalancer {
 			DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
 			TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
 			System.out.println("Table Description: " + tableDescription);
-			putItemResult = dynamoDB.putItem(putItemRequest);
-			System.out.println("Result: " + putItemResult);
 
 		} catch (AmazonServiceException ase) {
 			System.out.println("Caught an AmazonServiceException, which means your request made it "
@@ -137,7 +132,7 @@ public class LoadBalancer {
 		}
 
 		for (Instance instance : tmpInstances) {
-			if (instance.getImageId().equals("ami-d2d103bd") && instance.getState().getCode() == 16) {
+			if (instance.getImageId().equals(INSTANCES_AMI_ID) && instance.getState().getCode() == 16) {
 				instances.add(instance);
 			}
 		}
@@ -195,7 +190,7 @@ public class LoadBalancer {
 			// Scan items for movies with a year attribute greater than 1985
 			HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
 			Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GT.toString())
-					.withAttributeValueList(new AttributeValue().withN("0"));
+					.withAttributeValueList(new AttributeValue().withS("0"));
 			scanFilter.put("threads", condition);
 			ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
 			ScanResult scanResult = dynamoDB.scan(scanRequest);

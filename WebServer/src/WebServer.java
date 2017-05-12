@@ -2,6 +2,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -48,9 +49,7 @@ public class WebServer {
 		server.setExecutor(null); // creates a default executor
 
 		server.createContext("/r.html", new RayTracerHandler(server));
-		server.setExecutor(Executors.newFixedThreadPool(5)); // creates a
-																// default
-																// executor
+		server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
 
 		server.start();
 	}
@@ -140,17 +139,19 @@ public class WebServer {
 		}
 
 		private void writeToDatabase() throws IOException {
-			System.out.println(
-					new String(Files.readAllBytes(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"))));
+		    try{
 			HashMap<String,String> fileMetrics = readFile();
-			Map<String, AttributeValue> item = newItem(server.getAddress().getHostName(), fileMetrics.get("threads"));
+			Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(), fileMetrics.get("threads"));
 			PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
 			PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
 			System.out.println("Result: " + putItemResult);
+        }catch (Exception e){
+            System.out.println(e.getMessage());
+        }
 
 		}
 
-		private static Map<String, AttributeValue> newItem(String ip, String threads) {
+		private Map<String, AttributeValue> newItem(String ip, String threads) {
 			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
 			item.put("ip", new AttributeValue(ip));
 			item.put("threads", new AttributeValue(threads));
