@@ -189,14 +189,47 @@ public class LoadBalancer {
 		private Instance getRightInstance() {
 			// Scan items for movies with a year attribute greater than 1985
 			HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
-			Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GT.toString())
+			Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
 					.withAttributeValueList(new AttributeValue().withS("0"));
 			scanFilter.put("threads", condition);
 			ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
 			ScanResult scanResult = dynamoDB.scan(scanRequest);
-			System.out.println("Result: " + scanResult);
+            String ip = getIpFromQuery(scanResult);
+            System.out.println("Result: " + scanResult);
 			// Get right instance
-			return instances.get(0);
+            return getInstanceFromIp(ip);
 		}
-	}
+
+        private Instance getInstanceFromIp(String ip) {
+            for (Instance instance : instances) {
+                System.out.println(instance.getPrivateIpAddress() + " " + ip);
+                if (instance.getPrivateIpAddress().equals(ip)){
+                    return instance;
+                }
+            }
+            throw new RuntimeException("Invalid IP");
+        }
+
+        private String getIpFromQuery(ScanResult scanResult) {
+            String nbThreads = "";
+            String ip = "";
+
+		    for (Map<String, AttributeValue> maps : scanResult.getItems()) {
+                String ipInMap = maps.get("ip").getS();
+                String nbThreadInMap = maps.get("threads").getS();
+
+                if(nbThreads.equals("")){
+                    nbThreads = nbThreadInMap;
+                    ip = ipInMap;
+                }
+
+                if(Integer.parseInt(nbThreadInMap) > Integer.parseInt(nbThreads) ){
+                    nbThreads = nbThreadInMap;
+                    ip = ipInMap;
+                }
+            }
+
+            return ip;
+        }
+    }
 }

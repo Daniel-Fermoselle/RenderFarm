@@ -10,6 +10,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.Executors;
 
 import com.amazonaws.AmazonClientException;
@@ -19,12 +21,8 @@ import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
-import com.amazonaws.services.dynamodbv2.model.ComparisonOperator;
-import com.amazonaws.services.dynamodbv2.model.Condition;
 import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
 import com.amazonaws.services.dynamodbv2.model.PutItemResult;
-import com.amazonaws.services.dynamodbv2.model.ScanRequest;
-import com.amazonaws.services.dynamodbv2.model.ScanResult;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -40,7 +38,8 @@ import javax.imageio.ImageIO;
 public class WebServer {
 
 	private static final String TABLE_NAME = "MetricStorageSystem";
-	private static AmazonDynamoDB dynamoDB;
+    private static final long DB_UPDATE_RATE = 30 * 1000;
+    private static AmazonDynamoDB dynamoDB;
 
 	public static void main(String[] args) throws Exception {
 		init();
@@ -48,10 +47,29 @@ public class WebServer {
 		server.createContext("/test", new MyHandler());
 		server.setExecutor(null); // creates a default executor
 
-		server.createContext("/r.html", new RayTracerHandler(server));
+		server.createContext("/r.html", new RayTracerHandler());
 		server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
 
+        writeToDatabase();
+        // create thread to from time to time to update instances
+        Timer timer = new Timer();
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("Going to update the instances that I know");
+                try {
+                    System.out.println("Going to reset threads value in DB");
+                    writeToDatabase();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }, DB_UPDATE_RATE, DB_UPDATE_RATE);
+
 		server.start();
+
+		Thread.sleep(3*60*1000);
+		timer.cancel();
 	}
 
 	private static void init() throws Exception {
@@ -69,6 +87,25 @@ public class WebServer {
 
 	}
 
+    private static void writeToDatabase() throws IOException {
+        try {
+            Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(), "5");
+            PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
+            PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
+            System.out.println("Result: " + putItemResult);
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+    }
+
+    private static Map<String, AttributeValue> newItem(String ip, String threads) {
+        Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
+        item.put("ip", new AttributeValue(ip));
+        item.put("threads", new AttributeValue(threads));
+        return item;
+    }
+
 	static class MyHandler implements HttpHandler {
 		@Override
 		public void handle(HttpExchange t) throws IOException {
@@ -83,12 +120,6 @@ public class WebServer {
 	}
 
 	static class RayTracerHandler implements HttpHandler {
-
-		private HttpServer server;
-
-		public RayTracerHandler(HttpServer server) {
-			this.server = server;
-		}
 
 		@Override
 		public void handle(HttpExchange t) throws IOException {
@@ -139,17 +170,17 @@ public class WebServer {
 		}
 
 		private void writeToDatabase() throws IOException {
-		    try{
-			HashMap<String,String> fileMetrics = readFile();
-			Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(), fileMetrics.get("threads"));
-			PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
-			PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
-			System.out.println("Result: " + putItemResult);
-        }catch (Exception e){
-            System.out.println(e.getMessage());
-        }
+            try {
+                HashMap<String, String> fileMetrics = readFile();
+                Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(), fileMetrics.get("threads"));
+                PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
+                PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
+                System.out.println("Result: " + putItemResult);
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+            }
 
-		}
+        }
 
 		private Map<String, AttributeValue> newItem(String ip, String threads) {
 			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
