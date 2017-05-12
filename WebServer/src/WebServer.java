@@ -22,6 +22,8 @@ import javax.imageio.ImageIO;
 //Hi
 public class WebServer {
 
+	private static final String TABLE_NAME = "MetricStorageSystem";
+	
     public static void main(String[] args) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
         server.createContext("/test", new MyHandler());
@@ -29,6 +31,7 @@ public class WebServer {
 
         server.createContext("/r.html", new RayTracerHandler());
         server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
+        
         server.start();
     }
 
