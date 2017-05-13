@@ -18,7 +18,6 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.io.*;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URL;
 import java.util.*;
@@ -26,223 +25,228 @@ import java.util.concurrent.Executors;
 
 public class LoadBalancer {
 
-	private static final long INSTANCE_UPDATE_RATE = 2 * 60 * 1000;
-	private static final long TIME_CONVERSION = 45;
-	private static final String TABLE_NAME = "MetricStorageSystem";
-	private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
+    private static final long INSTANCE_UPDATE_RATE = 2 * 60 * 1000;
+    private static final int TIME_CONVERSION = 45;
+    private static final String TABLE_NAME = "MetricStorageSystem";
+    private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
     private static final String INSTANCES_AMI_ID = "ami-1d9b4272";
 
     private static AmazonDynamoDB dynamoDB;
-	private static AmazonEC2 ec2;
+    private static AmazonEC2 ec2;
 
-	private static List<Instance> instances;
+    private static List<Instance> instances;
 
-	public static void main(String[] args) throws Exception {
-		HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
-		init();
+    public static void main(String[] args) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
+        init();
         initDatabase();
         System.out.println(instances.size());
-		server.createContext("/test", new MyHandler());
-		server.setExecutor(null); // creates a default executor
+        server.createContext("/test", new MyHandler());
+        server.setExecutor(null); // creates a default executor
 
-		server.createContext("/r.html", new RayTracerLBHandler());
-		server.setExecutor(Executors.newFixedThreadPool(5)); // creates a
-																// default
-																// executor
+        server.createContext("/r.html", new RayTracerLBHandler());
+        server.setExecutor(Executors.newFixedThreadPool(5)); // creates a
+        // default
+        // executor
 
-		server.start();
-	}
+        server.start();
+    }
 
-	private static void init() throws Exception {
+    private static void init() throws Exception {
 
-		AWSCredentials credentials = null;
-		try {
-			credentials = new ProfileCredentialsProvider().getCredentials();
-		} catch (Exception e) {
-			throw new AmazonClientException("Cannot load the credentials from the credential profiles file. "
-					+ "Please make sure that your credentials file is at the correct "
-					+ "location (~/.aws/credentials), and is in valid format.", e);
-		}
-		ec2 = AmazonEC2ClientBuilder.standard().withRegion("eu-central-1")
-				.withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
-		dynamoDB = AmazonDynamoDBClientBuilder.standard().withRegion("eu-central-1")
-				.withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
+        AWSCredentials credentials = null;
+        try {
+            credentials = new ProfileCredentialsProvider().getCredentials();
+        } catch (Exception e) {
+            throw new AmazonClientException("Cannot load the credentials from the credential profiles file. "
+                    + "Please make sure that your credentials file is at the correct "
+                    + "location (~/.aws/credentials), and is in valid format.", e);
+        }
+        ec2 = AmazonEC2ClientBuilder.standard().withRegion("eu-central-1")
+                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
+        dynamoDB = AmazonDynamoDBClientBuilder.standard().withRegion("eu-central-1")
+                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
-		getInstances();
+        getInstances();
 
-		// create thread to from time to time to update instances
-		Timer timer = new Timer();
-		timer.scheduleAtFixedRate(new TimerTask() {
-			@Override
-			public void run() {
-				System.out.println("Going to update the instances that I know");
-				getInstances();
-			}
-		}, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
+        // create thread to from time to time to update instances
+        Timer timer = new Timer();
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("Going to update the instances that I know");
+                getInstances();
+            }
+        }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
 
-	}
+    }
 
-	private static void initDatabase() throws Exception {
-		try {
-			// Create a table with a primary hash key named 'ip', which holds
-			// a string
-			CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(TABLE_NAME)
-					.withKeySchema(new KeySchemaElement().withAttributeName("ip").withKeyType(KeyType.HASH))
-					.withAttributeDefinitions(
-							new AttributeDefinition().withAttributeName("ip").withAttributeType(ScalarAttributeType.S))
-					.withProvisionedThroughput(
-							new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
+    private static void initDatabase() throws Exception {
+        try {
+            // Create a table with a primary hash key named 'ip', which holds
+            // a string
+            CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(TABLE_NAME)
+                    .withKeySchema(new KeySchemaElement().withAttributeName("ip").withKeyType(KeyType.HASH))
+                    .withAttributeDefinitions(
+                            new AttributeDefinition().withAttributeName("ip").withAttributeType(ScalarAttributeType.S))
+                    .withProvisionedThroughput(
+                            new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
 
-			DeleteTableRequest deleteTableRequest = new DeleteTableRequest().withTableName(TABLE_NAME);
+            DeleteTableRequest deleteTableRequest = new DeleteTableRequest().withTableName(TABLE_NAME);
 
-			// Create table if it does not exist yet
-			TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
-			TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
+            // Create table if it does not exist yet
+            TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
+            TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
-			// wait for the table to move into ACTIVE state
-			TableUtils.waitUntilActive(dynamoDB, TABLE_NAME);
+            // wait for the table to move into ACTIVE state
+            TableUtils.waitUntilActive(dynamoDB, TABLE_NAME);
 
-			// Describe our new table
-			DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
-			TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
-			System.out.println("Table Description: " + tableDescription);
-			
-			//------------------------------------//
-			//---Create table for count metrics---//
-			//------------------------------------//
-			CreateTableRequest createTableRequest = new CreateTableRequest()
-					.withTableName(TABLE_NAME_COUNT )
-					.withKeySchema(new KeySchemaElement().withAttributeName("id").withKeyType(KeyType.HASH))
-					.withAttributeDefinitions(
-							new AttributeDefinition().withAttributeName("id").withAttributeType(ScalarAttributeType.S))
-					.withProvisionedThroughput(
-							new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
+            // Describe our new table
+            DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
+            TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
+            System.out.println("Table Description: " + tableDescription);
 
-			DeleteTableRequest deleteTableRequest = new DeleteTableRequest()
-					.withTableName(TABLE_NAME_COUNT);
+            //------------------------------------//
+            //---Create table for count metrics---//
+            //------------------------------------//
+            createTableRequest = new CreateTableRequest()
+                    .withTableName(TABLE_NAME_COUNT)
+                    .withKeySchema(new KeySchemaElement().withAttributeName("id").withKeyType(KeyType.HASH))
+                    .withAttributeDefinitions(
+                            new AttributeDefinition().withAttributeName("id").withAttributeType(ScalarAttributeType.S))
+                    .withProvisionedThroughput(
+                            new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
 
-			// Create table if it does not exist yet
-			TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
-			TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
+            deleteTableRequest = new DeleteTableRequest()
+                    .withTableName(TABLE_NAME_COUNT);
 
-			// wait for the table to move into ACTIVE state
-			TableUtils.waitUntilActive(dynamoDB, TABLE_NAME_COUNT);
+            // Create table if it does not exist yet
+            TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
+            TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
-			// Describe our new table
-			DescribeTableRequest describeTableRequest = new DescribeTableRequest()
-					.withTableName(TABLE_NAME_COUNT);
-			TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
-			System.out.println("Table Description: " + tableDescription);
-			//------------------------------------//
-			//---Create table for count metrics---//
-			//------------------------------------//
+            // wait for the table to move into ACTIVE state
+            TableUtils.waitUntilActive(dynamoDB, TABLE_NAME_COUNT);
 
-		} catch (AmazonServiceException ase) {
-			System.out.println("Caught an AmazonServiceException, which means your request made it "
-					+ "to AWS, but was rejected with an error response for some reason.");
-			System.out.println("Error Message:    " + ase.getMessage());
-			System.out.println("HTTP Status Code: " + ase.getStatusCode());
-			System.out.println("AWS Error Code:   " + ase.getErrorCode());
-			System.out.println("Error Type:       " + ase.getErrorType());
-			System.out.println("Request ID:       " + ase.getRequestId());
-		} catch (AmazonClientException ace) {
-			System.out.println("Caught an AmazonClientException, which means the client encountered "
-					+ "a serious internal problem while trying to communicate with AWS, "
-					+ "such as not being able to access the network.");
-			System.out.println("Error Message: " + ace.getMessage());
-		}
+            // Describe our new table
+            describeTableRequest = new DescribeTableRequest()
+                    .withTableName(TABLE_NAME_COUNT);
+            tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
+            System.out.println("Table Description: " + tableDescription);
+            //------------------------------------//
+            //---Create table for count metrics---//
+            //------------------------------------//
 
-	}
+        } catch (AmazonServiceException ase) {
+            System.out.println("Caught an AmazonServiceException, which means your request made it "
+                    + "to AWS, but was rejected with an error response for some reason.");
+            System.out.println("Error Message:    " + ase.getMessage());
+            System.out.println("HTTP Status Code: " + ase.getStatusCode());
+            System.out.println("AWS Error Code:   " + ase.getErrorCode());
+            System.out.println("Error Type:       " + ase.getErrorType());
+            System.out.println("Request ID:       " + ase.getRequestId());
+        } catch (AmazonClientException ace) {
+            System.out.println("Caught an AmazonClientException, which means the client encountered "
+                    + "a serious internal problem while trying to communicate with AWS, "
+                    + "such as not being able to access the network.");
+            System.out.println("Error Message: " + ace.getMessage());
+        }
 
-	private static void getInstances() {
-		DescribeInstancesResult describeInstancesRequest = ec2.describeInstances();
-		List<Reservation> reservations = describeInstancesRequest.getReservations();
-		ArrayList<Instance> tmpInstances = new ArrayList<Instance>();
-		instances = new ArrayList<Instance>();
+    }
 
-		for (Reservation reservation : reservations) {
-			tmpInstances.addAll(reservation.getInstances());
-		}
+    private static void getInstances() {
+        DescribeInstancesResult describeInstancesRequest = ec2.describeInstances();
+        List<Reservation> reservations = describeInstancesRequest.getReservations();
+        ArrayList<Instance> tmpInstances = new ArrayList<Instance>();
+        instances = new ArrayList<Instance>();
 
-		for (Instance instance : tmpInstances) {
-			if (instance.getImageId().equals(INSTANCES_AMI_ID) && instance.getState().getCode() == 16) {
-				instances.add(instance);
-			}
-		}
-	}
+        for (Reservation reservation : reservations) {
+            tmpInstances.addAll(reservation.getInstances());
+        }
 
-	static class MyHandler implements HttpHandler {
-		@Override
-		public void handle(HttpExchange t) throws IOException {
-			System.out.println("Got a test  request");
-			String response = "This was the query:" + t.getRequestURI().getQuery() + "##";
-			// Get the right information from the request
-			t.sendResponseHeaders(200, response.length());
-			OutputStream os = t.getResponseBody();
-			os.write(response.getBytes());
-			os.close();
-		}
-	}
+        for (Instance instance : tmpInstances) {
+            if (instance.getImageId().equals(INSTANCES_AMI_ID) && instance.getState().getCode() == 16) {
+                instances.add(instance);
+            }
+        }
+    }
 
-	static class RayTracerLBHandler implements HttpHandler {
-		@Override
-		public void handle(HttpExchange t) throws IOException {
-			try{
-				System.out.println("Got a raytracer request");
-				Instance i = getRightInstance();
-				String instanceIp = i.getPublicIpAddress();
-	
-				// Forward the request
-				String query = t.getRequestURI().getQuery();
-				URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
-				HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-				conn.setConnectTimeout(getRightTimeout(query));//ir buscar metricas
-				conn.setRequestMethod("GET");
+    static class MyHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            System.out.println("Got a test  request");
+            String response = "This was the query:" + t.getRequestURI().getQuery() + "##";
+            // Get the right information from the request
+            t.sendResponseHeaders(200, response.length());
+            OutputStream os = t.getResponseBody();
+            os.write(response.getBytes());
+            os.close();
+        }
+    }
 
-			catch (java.net.SocketTimeoutException e) {
-				   System.out.println("socketTimeout o que fazer");
-			}
-			
-			// Get the right information from the request
-			t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
-			t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
-			String content = getContent(conn.getContent());
-			OutputStream os = t.getResponseBody();
-			os.write(content.getBytes());
-			os.close();
-		}
+    static class RayTracerLBHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            try {
+                System.out.println("Got a raytracer request");
+                Instance i = getRightInstance();
+                String instanceIp = i.getPublicIpAddress();
 
-		private String getContent(Object content) throws IOException {
-			InputStreamReader in = new InputStreamReader((InputStream) content);
-			BufferedReader buff = new BufferedReader(in);
-			String line = "";
-			StringBuffer text = new StringBuffer("");
-			do {
-				text.append(line);
-				line = buff.readLine();
-			} while (line != null);
-			System.out.println(text.toString().length());
-			return text.toString();
-		}
+                // Forward the request
+                String query = t.getRequestURI().getQuery();
+                URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                int timeout = getRightTimeout(query);
+                if(timeout != -1){
+                    conn.setConnectTimeout(getRightTimeout(query));//ir buscar metricas
+                }
+                conn.setRequestMethod("GET");
 
-		private Instance getRightInstance() {
-			// Scan items for movies with a year attribute greater than 1985
-			HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
-			Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
-					.withAttributeValueList(new AttributeValue().withS("0"));
-			scanFilter.put("threads", condition);
-			ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
-			ScanResult scanResult = dynamoDB.scan(scanRequest);
+
+                // Get the right information from the request
+                t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+                t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
+                String content = getContent(conn.getContent());
+                OutputStream os = t.getResponseBody();
+                os.write(content.getBytes());
+                os.close();
+
+            } catch (java.net.SocketTimeoutException e) {
+                System.out.println("socketTimeout o que fazer");
+            }
+        }
+
+        private String getContent(Object content) throws IOException {
+            InputStreamReader in = new InputStreamReader((InputStream) content);
+            BufferedReader buff = new BufferedReader(in);
+            String line = "";
+            StringBuffer text = new StringBuffer("");
+            do {
+                text.append(line);
+                line = buff.readLine();
+            } while (line != null);
+            System.out.println(text.toString().length());
+            return text.toString();
+        }
+
+        private Instance getRightInstance() {
+            // Scan items for movies with a year attribute greater than 1985
+            HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+            Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
+                    .withAttributeValueList(new AttributeValue().withS("0"));
+            scanFilter.put("threads", condition);
+
+            ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
+            ScanResult scanResult = dynamoDB.scan(scanRequest);
             String ip = getIpFromQuery(scanResult);
             System.out.println("Result: " + scanResult);
-			// Get right instance
+            // Get right instance
             return getInstanceFromIp(ip);
-		}
+        }
 
         private Instance getInstanceFromIp(String ip) {
             for (Instance instance : instances) {
                 System.out.println(instance.getPrivateIpAddress() + " " + ip);
-                if (instance.getPrivateIpAddress().equals(ip)){
+                if (instance.getPrivateIpAddress().equals(ip)) {
                     return instance;
                 }
             }
@@ -253,16 +257,16 @@ public class LoadBalancer {
             String nbThreads = "";
             String ip = "";
 
-		    for (Map<String, AttributeValue> maps : scanResult.getItems()) {
+            for (Map<String, AttributeValue> maps : scanResult.getItems()) {
                 String ipInMap = maps.get("ip").getS();
                 String nbThreadInMap = maps.get("threads").getS();
 
-                if(nbThreads.equals("")){
+                if (nbThreads.equals("")) {
                     nbThreads = nbThreadInMap;
                     ip = ipInMap;
                 }
 
-                if(Integer.parseInt(nbThreadInMap) > Integer.parseInt(nbThreads) ){
+                if (Integer.parseInt(nbThreadInMap) > Integer.parseInt(nbThreads)) {
                     nbThreads = nbThreadInMap;
                     ip = ipInMap;
                 }
@@ -270,42 +274,44 @@ public class LoadBalancer {
 
             return ip;
         }
-        
-        private long getRightTimeout(String query) {
-			HashMap<String, String> processedQuery = processQuery(query);
-        	HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
-        	long resolution = Long.parseLong(processedQuery.get(wc) * processedQuery.get(wr));
-			Condition resolutionCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
-					.withAttributeValueList(new AttributeValue().withS(resolution.toString()));
-			Condition filenameCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
-					.withAttributeValueList(new AttributeValue().withS(processedQuery.get("f")));
-			scanFilter.put("filename", filenameCondition);
-			scanFilter.put("resolution", resolutionCondition);
-			ScanRequest scanRequest = new ScanRequest(TABLE_NAME_COUNT).withScanFilter(scanFilter);
-			ScanResult scanResult = dynamoDB.scan(scanRequest);
-            String timeout = Long.toString(getCountFromQuery(scanResult));
+
+        private int getRightTimeout(String query) {
+            HashMap<String, String> processedQuery = processQuery(query);
+            HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+            long resolution = Long.parseLong(processedQuery.get("wc")) * Long.parseLong(processedQuery.get("wr"));
+
+            Condition resolutionCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
+                    .withAttributeValueList(new AttributeValue().withS(resolution + ""));
+            Condition filenameCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
+                    .withAttributeValueList(new AttributeValue().withS(processedQuery.get("f")));
+            scanFilter.put("filename", filenameCondition);
+            scanFilter.put("resolution", resolutionCondition);
+
+            ScanRequest scanRequest = new ScanRequest(TABLE_NAME_COUNT).withScanFilter(scanFilter);
+            ScanResult scanResult = dynamoDB.scan(scanRequest);
             System.out.println("Result: " + scanResult);
-			// Get right instance
-            return timeout;
-		}
-        
-        private long getCountFromQuery(ScanResult scanResult) {
-		    for (Map<String, AttributeValue> maps : scanResult.getItems()) {
+
+            return getCountFromQuery(scanResult);
+        }
+
+        private int getCountFromQuery(ScanResult scanResult) {
+            for (Map<String, AttributeValue> maps : scanResult.getItems()) {
                 String count = maps.get("count").getS();//MAYBE WE NEED MORE VERIFICATIONS
-                return Long.parseLong(count) / TIME_CONVERSION; //This const is the relation between the count and time but maybe this is not linear problem
+                return Integer.parseInt(count) / TIME_CONVERSION; //This const is the relation between the count and time but maybe this is not linear problem
             }
+            return -1;
         }
-        private HashMap<String, String> processQuery(String q){
-        	HashMap<String, String> process = new HashMap<String, String>();
-        	String[] splitAnds = q.split("&");
-        	for(String s : splitAnds){
-        		String[] pair = s.split("=");
-				m.put(pair[0], pair[1]);
-        	}
+
+        private HashMap<String, String> processQuery(String q) {
+            HashMap<String, String> process = new HashMap<String, String>();
+            String[] splitAnds = q.split("&");
+            for (String s : splitAnds) {
+                String[] pair = s.split("=");
+                process.put(pair[0], pair[1]);
+            }
+            return process;
         }
-        	
-        	
-        	
-        }
+
     }
 }
+

@@ -10,31 +10,18 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.amazonaws.AmazonClientException;
-import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
-import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
-import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
-import com.amazonaws.services.dynamodbv2.model.DeleteTableRequest;
-import com.amazonaws.services.dynamodbv2.model.DescribeTableRequest;
-import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
-import com.amazonaws.services.dynamodbv2.model.KeyType;
-import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
 import com.amazonaws.services.dynamodbv2.model.PutItemResult;
-import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
-import com.amazonaws.services.dynamodbv2.model.TableDescription;
-import com.amazonaws.services.dynamodbv2.util.TableUtils;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -53,6 +40,7 @@ public class WebServer {
 	private static int THREAD_NAME_SPLIT_ID = 3;
     private static final long DB_UPDATE_RATE = 30 * 1000;
     private static AmazonDynamoDB dynamoDB;
+    private static int counter = 0;
 
 
 	public static void main(String[] args) throws Exception {
@@ -65,25 +53,7 @@ public class WebServer {
 		server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
 
         writeToDatabase();
-        // create thread to from time to time to update instances
-        Timer timer = new Timer();
-        timer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-                System.out.println("Going to update the instances that I know");
-                try {
-                    System.out.println("Going to reset threads value in DB");
-                    writeToDatabase();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }, DB_UPDATE_RATE, DB_UPDATE_RATE);
-
-		server.start();
-
-		Thread.sleep(3*60*1000);
-		timer.cancel();
+        server.start();
 	}
 
 	private static void init() throws Exception {
@@ -136,15 +106,16 @@ public class WebServer {
 
 	static class RayTracerHandler implements HttpHandler {
 		
-	    private AtomicInteger counter;
+	    private AtomicInteger methodCounter;
 	    
 	    public RayTracerHandler (){
-	    	counter = new AtomicInteger();
+            methodCounter = new AtomicInteger();
 	    }
 		
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			System.out.println("Got a raytracer request");
+			counter = counter + 1;
 			String query = t.getRequestURI().getQuery();
 			String[] splitQuery = query.split("&");
 			HashMap<String, String> arguments = new HashMap<>();
@@ -156,6 +127,8 @@ public class WebServer {
 
 			long l = Long.parseLong(arguments.get("wc")) * Long.parseLong(arguments.get("wr"));
 			createFile(arguments.get("f"), l + "");
+
+            writeToBeforeDatabase();
 
 			BufferedImage img;
 			try {
@@ -190,17 +163,57 @@ public class WebServer {
 			os.close();
 		}
 
-		private void writeToDatabase() throws IOException {
+
+        private void writeToBeforeDatabase() throws IOException {
+            try {
+
+                int waiting = getNbWaitingThreads();
+
+                Map<String, AttributeValue> item;
+                if (counter > 5)
+                    item = newItem(InetAddress.getLocalHost().getHostAddress(), waiting + "");
+                else
+                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - waiting) + "");
+
+                PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
+                PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
+                System.out.println("Result: " + putItemResult);
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+            }
+
+        }
+
+        private int getNbWaitingThreads() {
+            int activeCount = Thread.activeCount();
+            int waiting = 0;
+            Thread threads[] = new Thread[activeCount];
+            Thread.enumerate(threads);
+
+            for (Thread thread : threads) {
+                if (thread.getState().equals(Thread.State.WAITING)) {
+                    waiting++;
+                }
+            }
+            return waiting;
+        }
+
+        private void writeToDatabase() throws IOException {
             try {
                 HashMap<String, String> fileMetrics = readFile();
-                Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(),
-                		fileMetrics.get("threads"));
+
+                Map<String, AttributeValue> item;
+                if (counter > 5)
+                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (1 + Integer.parseInt(fileMetrics.get("threads"))) + "");
+                else
+                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - Integer.parseInt(fileMetrics.get("threads")) + 1) + "");
+
                 PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
                 PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
                 
                 //---Writing metrics for the request namely the method count
-                item = newCountItem(getThreadName() + counter.incrementAndGet(), 
+                item = newCountItem(getThreadName() + methodCounter.incrementAndGet(),
                 		fileMetrics.get("methodsRun"), fileMetrics.get("filename"), fileMetrics.get("resolution"));
                 putItemRequest = new PutItemRequest(TABLE_NAME_COUNT, item);
                 putItemResult= dynamoDB.putItem(putItemRequest);
