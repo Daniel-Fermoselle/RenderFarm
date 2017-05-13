@@ -45,9 +45,7 @@ public class LoadBalancer {
         server.setExecutor(null); // creates a default executor
 
         server.createContext("/r.html", new RayTracerLBHandler());
-        server.setExecutor(Executors.newFixedThreadPool(5)); // creates a
-        // default
-        // executor
+        server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
 
         server.start();
     }
@@ -98,38 +96,36 @@ public class LoadBalancer {
             TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
             TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
-            // wait for the table to move into ACTIVE state
-            TableUtils.waitUntilActive(dynamoDB, TABLE_NAME);
-
-            // Describe our new table
-            DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
-            TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
-            System.out.println("Table Description: " + tableDescription);
-
             //------------------------------------//
             //---Create table for count metrics---//
             //------------------------------------//
             createTableRequest = new CreateTableRequest()
                     .withTableName(TABLE_NAME_COUNT)
-                    .withKeySchema(new KeySchemaElement().withAttributeName("id").withKeyType(KeyType.HASH))
+                    .withKeySchema(new KeySchemaElement().withAttributeName("filename-resolution").withKeyType(KeyType.HASH))
                     .withAttributeDefinitions(
-                            new AttributeDefinition().withAttributeName("id").withAttributeType(ScalarAttributeType.S))
+                            new AttributeDefinition().withAttributeName("filename-resolution")
+                            .withAttributeType(ScalarAttributeType.S))
                     .withProvisionedThroughput(
                             new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
 
-            deleteTableRequest = new DeleteTableRequest()
-                    .withTableName(TABLE_NAME_COUNT);
+            deleteTableRequest = new DeleteTableRequest().withTableName(TABLE_NAME_COUNT);
 
             // Create table if it does not exist yet
             TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
             TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
             // wait for the table to move into ACTIVE state
+            TableUtils.waitUntilActive(dynamoDB, TABLE_NAME);
+
+            // wait for the table to move into ACTIVE state
             TableUtils.waitUntilActive(dynamoDB, TABLE_NAME_COUNT);
 
             // Describe our new table
-            describeTableRequest = new DescribeTableRequest()
-                    .withTableName(TABLE_NAME_COUNT);
+            DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
+            TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
+            System.out.println("Table Description: " + tableDescription);
+
+            describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME_COUNT);
             tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
             System.out.println("Table Description: " + tableDescription);
             //------------------------------------//
@@ -188,16 +184,18 @@ public class LoadBalancer {
         public void handle(HttpExchange t) throws IOException {
             try {
                 System.out.println("Got a raytracer request");
-                Instance i = getRightInstance();
+                String[] ipAndThreads = getIpAndThreadsOfInstance();
+                Instance i = getInstanceFromIp(ipAndThreads [0]);
                 String instanceIp = i.getPublicIpAddress();
 
                 // Forward the request
                 String query = t.getRequestURI().getQuery();
                 URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                int timeout = getRightTimeout(query);
+                int timeout = getRightTimeout(query, ipAndThreads[1]);
+                System.out.println("Timeout value: " + timeout);
                 if(timeout != -1){
-                    conn.setConnectTimeout(getRightTimeout(query));//ir buscar metricas
+                    conn.setConnectTimeout(timeout);//ir buscar metricas
                 }
                 conn.setRequestMethod("GET");
 
@@ -227,21 +225,20 @@ public class LoadBalancer {
             return text.toString();
         }
 
-        private Instance getRightInstance() {
-            // Scan items for movies with a year attribute greater than 1985
-            HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+
+        private String[] getIpAndThreadsOfInstance(){
+        	HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
             Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
                     .withAttributeValueList(new AttributeValue().withS("0"));
             scanFilter.put("threads", condition);
 
             ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
             ScanResult scanResult = dynamoDB.scan(scanRequest);
-            String ip = getIpFromQuery(scanResult);
+            String[] ipAndThreadsQuery = getIpAndThreadsFromQuery(scanResult);
             System.out.println("Result: " + scanResult);
-            // Get right instance
-            return getInstanceFromIp(ip);
+            return ipAndThreadsQuery;
         }
-
+        
         private Instance getInstanceFromIp(String ip) {
             for (Instance instance : instances) {
                 System.out.println(instance.getPrivateIpAddress() + " " + ip);
@@ -252,7 +249,7 @@ public class LoadBalancer {
             throw new RuntimeException("Invalid IP");
         }
 
-        private String getIpFromQuery(ScanResult scanResult) {
+        private String[] getIpAndThreadsFromQuery(ScanResult scanResult) {
             String nbThreads = "";
             String ip = "";
 
@@ -271,32 +268,29 @@ public class LoadBalancer {
                 }
             }
 
-            return ip;
+            return new String[] {ip, nbThreads};
         }
 
-        private int getRightTimeout(String query) {
+        private int getRightTimeout(String query, String availableThreads) {
             HashMap<String, String> processedQuery = processQuery(query);
             HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
             long resolution = Long.parseLong(processedQuery.get("wc")) * Long.parseLong(processedQuery.get("wr"));
-
-            Condition resolutionCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
-                    .withAttributeValueList(new AttributeValue().withS(resolution + ""));
-            Condition filenameCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
-                    .withAttributeValueList(new AttributeValue().withS(processedQuery.get("f")));
-            scanFilter.put("filename", filenameCondition);
-            scanFilter.put("resolution", resolutionCondition);
+            Condition condition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
+                    .withAttributeValueList(new AttributeValue().withS(processedQuery.get("f") + "-" + resolution + ""));
+            scanFilter.put("filename-resolution", condition);
 
             ScanRequest scanRequest = new ScanRequest(TABLE_NAME_COUNT).withScanFilter(scanFilter);
             ScanResult scanResult = dynamoDB.scan(scanRequest);
             System.out.println("Result: " + scanResult);
 
-            return getCountFromQuery(scanResult);
+            return getCountFromQuery(scanResult, availableThreads);
         }
 
-        private int getCountFromQuery(ScanResult scanResult) {
+        private int getCountFromQuery(ScanResult scanResult, String availableThreads) {
+        	int threadsAvailable = Integer.parseInt(availableThreads);
             for (Map<String, AttributeValue> maps : scanResult.getItems()) {
                 String count = maps.get("count").getS(); //MAYBE WE NEED MORE VERIFICATIONS
-                Long i = (Long.parseLong(count) / TIME_CONVERSION); //This const is the relation between the count and time but maybe this is not linear problem
+                Long i = (Long.parseLong(count) / TIME_CONVERSION) * (6-threadsAvailable); //This const is the relation between the count and time but maybe this is not linear problem
                 return i.intValue();
             }
             return -1;

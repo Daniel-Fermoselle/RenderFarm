@@ -11,7 +11,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.auth.AWSCredentials;
@@ -106,12 +105,6 @@ public class WebServer {
 
 	static class RayTracerHandler implements HttpHandler {
 		
-	    private AtomicInteger methodCounter;
-	    
-	    public RayTracerHandler (){
-            methodCounter = new AtomicInteger();
-	    }
-		
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			System.out.println("Got a raytracer request");
@@ -163,7 +156,6 @@ public class WebServer {
 			os.close();
 		}
 
-
         private void writeToBeforeDatabase() throws IOException {
             try {
 
@@ -206,15 +198,15 @@ public class WebServer {
                 if (counter > 5)
                     item = newItem(InetAddress.getLocalHost().getHostAddress(), (1 + Integer.parseInt(fileMetrics.get("threads"))) + "");
                 else
-                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - Integer.parseInt(fileMetrics.get("threads")) + 1) + "");
+                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - (Integer.parseInt(fileMetrics.get("threads") + 1))) + "");
 
                 PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
                 PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
                 
                 //---Writing metrics for the request namely the method count
-                item = newCountItem(getThreadName() + methodCounter.incrementAndGet(),
-                		fileMetrics.get("methodsRun"), fileMetrics.get("filename"), fileMetrics.get("resolution"));
+                item = newCountItem(fileMetrics.get("methodsRun"), 
+                		fileMetrics.get("filename") + "-" + fileMetrics.get("resolution"));
                 putItemRequest = new PutItemRequest(TABLE_NAME_COUNT, item);
                 putItemResult= dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
@@ -224,11 +216,6 @@ public class WebServer {
             }
         }
 
-		public static synchronized String getThreadName() {
-	    	String[] poolName = Thread.currentThread().getName().split("-");
-	    	return poolName[THREAD_NAME_SPLIT_ID];
-	    }
-		
 		private Map<String, AttributeValue> newItem(String ip, String threads) {
 			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
 			item.put("ip", new AttributeValue(ip));
@@ -236,12 +223,10 @@ public class WebServer {
 			return item;
 		}
 		
-		private Map<String, AttributeValue> newCountItem(String id, String count, String filename, String resolution) {
+		private Map<String, AttributeValue> newCountItem(String count, String filenameResolution) {
 			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
-			item.put("ip", new AttributeValue(id));
+			item.put("filename-resolution", new AttributeValue(filenameResolution));
 			item.put("count", new AttributeValue(count));
-			item.put("filename", new AttributeValue(filename));
-			item.put("resolution", new AttributeValue(resolution));
 			return item;
 		}
 
