@@ -27,6 +27,7 @@ import java.util.concurrent.Executors;
 public class LoadBalancer {
 
 	private static final long INSTANCE_UPDATE_RATE = 2 * 60 * 1000;
+	private static final long TIME_CONVERSION = 45;
 	private static final String TABLE_NAME = "MetricStorageSystem";
 	private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
     private static final String INSTANCES_AMI_ID = "ami-1d9b4272";
@@ -186,16 +187,22 @@ public class LoadBalancer {
 	static class RayTracerLBHandler implements HttpHandler {
 		@Override
 		public void handle(HttpExchange t) throws IOException {
-			System.out.println("Got a raytracer request");
-			Instance i = getRightInstance();
-			String instanceIp = i.getPublicIpAddress();
+			try{
+				System.out.println("Got a raytracer request");
+				Instance i = getRightInstance();
+				String instanceIp = i.getPublicIpAddress();
+	
+				// Forward the request
+				String query = t.getRequestURI().getQuery();
+				URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
+				HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+				con.setConnectTimeout(getRightTimeout(query));//ir buscar metricas
+				conn.setRequestMethod("GET");
 
-			// Forward the request
-			String query = t.getRequestURI().getQuery();
-			URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
-			HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-			conn.setRequestMethod("GET");
-
+			catch (java.net.SocketTimeoutException e) {
+				   System.out.println("socketTimeout o que fazer");
+			}
+			
 			// Get the right information from the request
 			t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
 			t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
@@ -262,6 +269,43 @@ public class LoadBalancer {
             }
 
             return ip;
+        }
+        
+        private long getRightTimeout(String query) {
+			HashMap<String, String> processedQuery = processQuery(query);
+        	HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+        	long resolution = Long.parseLong(processedQuery.get(wc) * processedQuery.get(wr));
+			Condition resolutionCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
+					.withAttributeValueList(new AttributeValue().withS(resolution.toString()));
+			Condition filenameCondition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
+					.withAttributeValueList(new AttributeValue().withS(processedQuery.get("f")));
+			scanFilter.put("filename", filenameCondition);
+			scanFilter.put("resolution", resolutionCondition);
+			ScanRequest scanRequest = new ScanRequest(TABLE_NAME_COUNT).withScanFilter(scanFilter);
+			ScanResult scanResult = dynamoDB.scan(scanRequest);
+            String timeout = Long.toString(getCountFromQuery(scanResult));
+            System.out.println("Result: " + scanResult);
+			// Get right instance
+            return timeout;
+		}
+        
+        private long getCountFromQuery(ScanResult scanResult) {
+		    for (Map<String, AttributeValue> maps : scanResult.getItems()) {
+                String count = maps.get("count").getS();//MAYBE WE NEED MORE VERIFICATIONS
+                return Long.parseLong(count) / TIME_CONVERSION; //This const is the relation between the count and time but maybe this is not linear problem
+            }
+        }
+        private HashMap<String, String> processQuery(String q){
+        	HashMap<String, String> process = new HashMap<String, String>();
+        	String[] splitAnds = q.split("&");
+        	for(String s : splitAnds){
+        		String[] pair = s.split("=");
+				m.put(pair[0], pair[1]);
+        	}
+        }
+        	
+        	
+        	
         }
     }
 }

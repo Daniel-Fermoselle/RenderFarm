@@ -206,7 +206,7 @@ public class WebServer {
                 putItemResult= dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
                 
-            } catch (Exception e) {//O QUE FAZER COM ISTO NO FIM
+            } catch (Exception e) {//REMOVE?
                 System.out.println(e.getMessage());
             }
         }
