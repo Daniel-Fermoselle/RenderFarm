@@ -196,7 +196,7 @@ public class LoadBalancer {
 				String query = t.getRequestURI().getQuery();
 				URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
 				HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-				con.setConnectTimeout(getRightTimeout(query));//ir buscar metricas
+				conn.setConnectTimeout(getRightTimeout(query));//ir buscar metricas
 				conn.setRequestMethod("GET");
 
 			catch (java.net.SocketTimeoutException e) {
