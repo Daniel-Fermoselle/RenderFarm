@@ -201,7 +201,6 @@ public class LoadBalancer {
                 }
                 conn.setRequestMethod("GET");
 
-
                 // Get the right information from the request
                 t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
                 t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
@@ -296,8 +295,9 @@ public class LoadBalancer {
 
         private int getCountFromQuery(ScanResult scanResult) {
             for (Map<String, AttributeValue> maps : scanResult.getItems()) {
-                String count = maps.get("count").getS();//MAYBE WE NEED MORE VERIFICATIONS
-                return Integer.parseInt(count) / TIME_CONVERSION; //This const is the relation between the count and time but maybe this is not linear problem
+                String count = maps.get("count").getS(); //MAYBE WE NEED MORE VERIFICATIONS
+                Long i = (Long.parseLong(count) / TIME_CONVERSION); //This const is the relation between the count and time but maybe this is not linear problem
+                return i.intValue();
             }
             return -1;
         }
