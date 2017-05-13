@@ -192,6 +192,7 @@ public class LoadBalancer {
 			Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
 					.withAttributeValueList(new AttributeValue().withS("0"));
 			scanFilter.put("threads", condition);
+
 			ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
 			ScanResult scanResult = dynamoDB.scan(scanRequest);
             String ip = getIpFromQuery(scanResult);
