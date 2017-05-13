@@ -23,8 +23,8 @@ import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
 import com.amazonaws.services.dynamodbv2.model.PutItemResult;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
 
+import com.sun.net.httpserver.HttpServer;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.binary.StringUtils;
 import raytracer.Main;
@@ -36,8 +36,6 @@ public class WebServer {
 
 	private static final String TABLE_NAME = "MetricStorageSystem";
 	private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
-	private static int THREAD_NAME_SPLIT_ID = 3;
-    private static final long DB_UPDATE_RATE = 30 * 1000;
     private static AmazonDynamoDB dynamoDB;
     private static int counter = 0;
 
