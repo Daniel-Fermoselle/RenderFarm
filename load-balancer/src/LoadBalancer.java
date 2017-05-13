@@ -18,6 +18,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.io.*;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URL;
 import java.util.*;
@@ -27,6 +28,7 @@ public class LoadBalancer {
 
 	private static final long INSTANCE_UPDATE_RATE = 2 * 60 * 1000;
 	private static final String TABLE_NAME = "MetricStorageSystem";
+	private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
     private static final String INSTANCES_AMI_ID = "ami-1d9b4272";
 
     private static AmazonDynamoDB dynamoDB;
@@ -81,7 +83,7 @@ public class LoadBalancer {
 
 	private static void initDatabase() throws Exception {
 		try {
-			// Create a table with a primary hash key named 'name', which holds
+			// Create a table with a primary hash key named 'ip', which holds
 			// a string
 			CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(TABLE_NAME)
 					.withKeySchema(new KeySchemaElement().withAttributeName("ip").withKeyType(KeyType.HASH))
@@ -103,6 +105,36 @@ public class LoadBalancer {
 			DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
 			TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
 			System.out.println("Table Description: " + tableDescription);
+			
+			//------------------------------------//
+			//---Create table for count metrics---//
+			//------------------------------------//
+			CreateTableRequest createTableRequest = new CreateTableRequest()
+					.withTableName(TABLE_NAME_COUNT )
+					.withKeySchema(new KeySchemaElement().withAttributeName("id").withKeyType(KeyType.HASH))
+					.withAttributeDefinitions(
+							new AttributeDefinition().withAttributeName("id").withAttributeType(ScalarAttributeType.S))
+					.withProvisionedThroughput(
+							new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
+
+			DeleteTableRequest deleteTableRequest = new DeleteTableRequest()
+					.withTableName(TABLE_NAME_COUNT);
+
+			// Create table if it does not exist yet
+			TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
+			TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
+
+			// wait for the table to move into ACTIVE state
+			TableUtils.waitUntilActive(dynamoDB, TABLE_NAME_COUNT);
+
+			// Describe our new table
+			DescribeTableRequest describeTableRequest = new DescribeTableRequest()
+					.withTableName(TABLE_NAME_COUNT);
+			TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
+			System.out.println("Table Description: " + tableDescription);
+			//------------------------------------//
+			//---Create table for count metrics---//
+			//------------------------------------//
 
 		} catch (AmazonServiceException ase) {
 			System.out.println("Caught an AmazonServiceException, which means your request made it "

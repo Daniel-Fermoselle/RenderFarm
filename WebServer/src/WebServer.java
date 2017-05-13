@@ -13,17 +13,28 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.amazonaws.AmazonClientException;
+import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
+import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
+import com.amazonaws.services.dynamodbv2.model.DeleteTableRequest;
+import com.amazonaws.services.dynamodbv2.model.DescribeTableRequest;
+import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
+import com.amazonaws.services.dynamodbv2.model.KeyType;
+import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
 import com.amazonaws.services.dynamodbv2.model.PutItemResult;
-
+import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
+import com.amazonaws.services.dynamodbv2.model.TableDescription;
+import com.amazonaws.services.dynamodbv2.util.TableUtils;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -38,8 +49,11 @@ import javax.imageio.ImageIO;
 public class WebServer {
 
 	private static final String TABLE_NAME = "MetricStorageSystem";
+	private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
+	private static int THREAD_NAME_SPLIT_ID = 3;
     private static final long DB_UPDATE_RATE = 30 * 1000;
     private static AmazonDynamoDB dynamoDB;
+
 
 	public static void main(String[] args) throws Exception {
 		init();
@@ -86,6 +100,7 @@ public class WebServer {
 				.withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
 	}
+	
 
     private static void writeToDatabase() throws IOException {
         try {
@@ -120,7 +135,13 @@ public class WebServer {
 	}
 
 	static class RayTracerHandler implements HttpHandler {
-
+		
+	    private AtomicInteger counter;
+	    
+	    public RayTracerHandler (){
+	    	counter = new AtomicInteger();
+	    }
+		
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			System.out.println("Got a raytracer request");
@@ -172,20 +193,42 @@ public class WebServer {
 		private void writeToDatabase() throws IOException {
             try {
                 HashMap<String, String> fileMetrics = readFile();
-                Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(), fileMetrics.get("threads"));
+                Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(),
+                		fileMetrics.get("threads"));
                 PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
                 PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
-            } catch (Exception e) {
+                
+                //---Writing metrics for the request namely the method count
+                item = newCountItem(getThreadName() + counter.incrementAndGet(), 
+                		fileMetrics.get("methodsRun"), fileMetrics.get("filename"), fileMetrics.get("resolution"));
+                putItemRequest = new PutItemRequest(TABLE_NAME_COUNT, item);
+                putItemResult= dynamoDB.putItem(putItemRequest);
+                System.out.println("Result: " + putItemResult);
+                
+            } catch (Exception e) {//O QUE FAZER COM ISTO NO FIM
                 System.out.println(e.getMessage());
             }
-
         }
 
+		public static synchronized String getThreadName() {
+	    	String[] poolName = Thread.currentThread().getName().split("-");
+	    	return poolName[THREAD_NAME_SPLIT_ID];
+	    }
+		
 		private Map<String, AttributeValue> newItem(String ip, String threads) {
 			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
 			item.put("ip", new AttributeValue(ip));
 			item.put("threads", new AttributeValue(threads));
+			return item;
+		}
+		
+		private Map<String, AttributeValue> newCountItem(String id, String count, String filename, String resolution) {
+			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
+			item.put("ip", new AttributeValue(id));
+			item.put("count", new AttributeValue(count));
+			item.put("filename", new AttributeValue(filename));
+			item.put("resolution", new AttributeValue(resolution));
 			return item;
 		}
 
