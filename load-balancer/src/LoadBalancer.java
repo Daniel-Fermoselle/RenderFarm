@@ -5,6 +5,8 @@ import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
+import com.amazonaws.services.dynamodbv2.document.DeleteItemOutcome;
+import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.dynamodbv2.model.*;
 import com.amazonaws.services.dynamodbv2.util.TableUtils;
 import com.amazonaws.services.ec2.AmazonEC2;
@@ -45,7 +47,7 @@ public class LoadBalancer {
         server.setExecutor(null); // creates a default executor
 
         server.createContext("/r.html", new RayTracerLBHandler());
-        server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
+        server.setExecutor(Executors.newFixedThreadPool(10)); // creates a default executor
 
         server.start();
     }
@@ -74,9 +76,48 @@ public class LoadBalancer {
             public void run() {
                 System.out.println("Going to update the instances that I know");
                 getInstances();
+                cleanOldInstances();
             }
         }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
 
+    }
+
+    private static void cleanOldInstances() {
+        HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+        Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
+                .withAttributeValueList(new AttributeValue().withS("0"));
+        scanFilter.put("threads", condition);
+
+        ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
+        ScanResult scanResult = dynamoDB.scan(scanRequest);
+
+        boolean inInstances;
+        for (Map<String, AttributeValue> key : scanResult.getItems()){
+            String ipInMap = key.get("ip").getS();
+            inInstances = false;
+
+            for (Instance instance : instances) {
+                if(instance.getPrivateIpAddress().equals(ipInMap)){
+                    inInstances =true;
+                }
+            }
+
+            if(!inInstances){
+                deleteIpFromDB(ipInMap);
+            }
+
+        }
+
+    }
+
+    private static void deleteIpFromDB(String ipAddr) {
+        Map<String, AttributeValue> key = new HashMap<>();
+        key.put("ip", new AttributeValue().withS(ipAddr));
+
+        DeleteItemRequest deleteRequest = new DeleteItemRequest().withTableName(TABLE_NAME).withKey(key);
+
+        DeleteItemResult result = dynamoDB.deleteItem(deleteRequest);
+        System.out.println("Result from removing item: " + result);
     }
 
     private static void initDatabase() throws Exception {

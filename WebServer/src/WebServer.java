@@ -198,7 +198,7 @@ public class WebServer {
                 if (counter > 5)
                     item = newItem(InetAddress.getLocalHost().getHostAddress(), (1 + Integer.parseInt(fileMetrics.get("threads"))) + "");
                 else
-                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - (Integer.parseInt(fileMetrics.get("threads") + 1))) + "");
+                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - Integer.parseInt(fileMetrics.get("threads"))) + "");
 
                 PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
                 PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
