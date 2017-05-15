@@ -235,10 +235,10 @@ public class LoadBalancer {
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 int timeout = getRightTimeout(query, ipAndThreads[1]);
                 System.out.println("Timeout value: " + timeout);
+                conn.setRequestMethod("GET");
                 if(timeout != -1){
                     conn.setConnectTimeout(timeout);//ir buscar metricas
                 }
-                conn.setRequestMethod("GET");
 
                 // Get the right information from the request
                 t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
