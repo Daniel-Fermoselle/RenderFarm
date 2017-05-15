@@ -21,6 +21,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -223,34 +224,53 @@ public class LoadBalancer {
     static class RayTracerLBHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
+            System.out.println("Got a raytracer request");
+            String[] ipAndThreads = getIpAndThreadsOfInstance();
+            Instance i = getInstanceFromIp(ipAndThreads[0]);
+            String instanceIp = i.getPublicIpAddress();
+
+            // Forward the request
+            String query = t.getRequestURI().getQuery();
+            int timeout = getRightTimeout(query, ipAndThreads[1]);
             try {
-                System.out.println("Got a raytracer request");
-                String[] ipAndThreads = getIpAndThreadsOfInstance();
-                Instance i = getInstanceFromIp(ipAndThreads [0]);
-                String instanceIp = i.getPublicIpAddress();
 
-                // Forward the request
-                String query = t.getRequestURI().getQuery();
-                URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                int timeout = getRightTimeout(query, ipAndThreads[1]);
-                System.out.println("Timeout value: " + timeout);
-                if(timeout != -1){
-                    conn.setConnectTimeout(timeout);//ir buscar metricas
-                }
-                conn.setRequestMethod("GET");
-
-                // Get the right information from the request
-                t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
-                t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
-                String content = getContent(conn.getContent());
-                OutputStream os = t.getResponseBody();
-                os.write(content.getBytes());
-                os.close();
+                redirectTimeout(t, instanceIp, query, timeout, false);
 
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("socketTimeout o que fazer");
+                try {
+                    redirectTimeout(t, instanceIp, query, -1, true);
+                } catch (java.net.SocketTimeoutException ex) {
+
+                }
+
+
             }
+        }
+
+        private void redirectTimeout(HttpExchange t, String instanceIp, String query, int timeout, boolean b)
+                throws IOException {
+            URL url;
+            if(b){
+                url = new URL("http://" + instanceIp + ":8000/test" + "?" + query);
+            }
+            else{
+                url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
+            }
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            System.out.println("Timeout value: " + timeout);
+            if(timeout != -1){
+                conn.setConnectTimeout(timeout);//ir buscar metricas
+            }
+            conn.setRequestMethod("GET");
+
+            // Get the right information from the request
+            t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
+            String content = getContent(conn.getContent());
+            OutputStream os = t.getResponseBody();
+            os.write(content.getBytes());
+            os.close();
         }
 
         private String getContent(Object content) throws IOException {
@@ -265,7 +285,6 @@ public class LoadBalancer {
             System.out.println(text.toString().length());
             return text.toString();
         }
-
 
         private String[] getIpAndThreadsOfInstance(){
         	HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
