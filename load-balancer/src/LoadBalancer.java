@@ -76,7 +76,11 @@ public class LoadBalancer {
             @Override
             public void run() {
                 System.out.println("Going to update the instances that I know");
-                getInstances();
+                try {
+                    getInstances();
+                } catch (IOException e) {
+                    throw new RuntimeException(e.getMessage());
+                }
                 cleanOldInstances();
             }
         }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
@@ -191,7 +195,7 @@ public class LoadBalancer {
 
     }
 
-    private static void getInstances() {
+    private static void getInstances() throws IOException{
         DescribeInstancesResult describeInstancesRequest = ec2.describeInstances();
         List<Reservation> reservations = describeInstancesRequest.getReservations();
         ArrayList<Instance> tmpInstances = new ArrayList<Instance>();
@@ -203,9 +207,38 @@ public class LoadBalancer {
 
         for (Instance instance : tmpInstances) {
             if (instance.getImageId().equals(INSTANCES_AMI_ID) && instance.getState().getCode() == 16) {
-                instances.add(instance);
+                if(testInstance(instance)) {
+                    instances.add(instance);
+                }
+                else {
+                    deleteIpFromDB(instance.getPrivateIpAddress());
+                }
             }
         }
+    }
+
+    private static boolean testInstance(Instance instance) throws IOException {
+        String query = "testtest";
+        URL url = new URL("http://" + instance.getPublicIpAddress() + ":8000/test" + "?" + query);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        if(getContent(conn.getContent()).equals("testtest")){
+            return true;
+        }
+        return false;
+    }
+
+    private static String getContent(Object content) throws IOException {
+        InputStreamReader in = new InputStreamReader((InputStream) content);
+        BufferedReader buff = new BufferedReader(in);
+        String line = "";
+        StringBuffer text = new StringBuffer("");
+        do {
+            text.append(line);
+            line = buff.readLine();
+        } while (line != null);
+        System.out.println(text.toString().length());
+        return text.toString();
     }
 
     static class MyHandler implements HttpHandler {
@@ -240,11 +273,15 @@ public class LoadBalancer {
                 System.out.println("socketTimeout o que fazer");
                 try {
                     redirectTimeout(t, instanceIp, query, -1, true);
-                } catch (java.net.SocketTimeoutException ex) {
-
+                    redirectTimeout(t, instanceIp, query, timeout * 2, false);
+                } catch (IOException ex) {
+                    deleteIpFromDB(i.getPrivateIpAddress());
+                    instances.remove(i);
+                    handle(t);
                 }
-
-
+            } catch (IOException e){
+                deleteIpFromDB(i.getPrivateIpAddress());
+                instances.remove(i);
             }
         }
 
@@ -259,10 +296,10 @@ public class LoadBalancer {
             }
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             System.out.println("Timeout value: " + timeout);
+            conn.setRequestMethod("GET");
             if(timeout != -1){
                 conn.setConnectTimeout(timeout);//ir buscar metricas
             }
-            conn.setRequestMethod("GET");
 
             // Get the right information from the request
             t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
@@ -271,19 +308,6 @@ public class LoadBalancer {
             OutputStream os = t.getResponseBody();
             os.write(content.getBytes());
             os.close();
-        }
-
-        private String getContent(Object content) throws IOException {
-            InputStreamReader in = new InputStreamReader((InputStream) content);
-            BufferedReader buff = new BufferedReader(in);
-            String line = "";
-            StringBuffer text = new StringBuffer("");
-            do {
-                text.append(line);
-                line = buff.readLine();
-            } while (line != null);
-            System.out.println(text.toString().length());
-            return text.toString();
         }
 
         private String[] getIpAndThreadsOfInstance(){
