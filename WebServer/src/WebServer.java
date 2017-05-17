@@ -169,6 +169,7 @@ public class WebServer {
                 PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
             } catch (Exception e) {
+            	e.printStackTrace();
                 System.out.println(e.getMessage());
             }
 
@@ -193,11 +194,12 @@ public class WebServer {
                 HashMap<String, String> fileMetrics = readFile();
 
                 Map<String, AttributeValue> item;
-                if (counter > 5)
+                if (counter > 5) {
                     item = newItem(InetAddress.getLocalHost().getHostAddress(), (1 + Integer.parseInt(fileMetrics.get("threads"))) + "");
-                else
+                }
+                else {
                     item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - Integer.parseInt(fileMetrics.get("threads"))) + "");
-
+                }
                 PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
                 PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
@@ -210,6 +212,7 @@ public class WebServer {
                 System.out.println("Result: " + putItemResult);
                 
             } catch (Exception e) {//REMOVE?
+                e.printStackTrace();
                 System.out.println(e.getMessage());
             }
         }
