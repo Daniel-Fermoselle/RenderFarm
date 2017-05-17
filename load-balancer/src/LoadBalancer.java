@@ -28,7 +28,7 @@ import java.util.concurrent.Executors;
 
 public class LoadBalancer {
 
-    private static final long INSTANCE_UPDATE_RATE = 2 * 60 * 1000;
+    private static final long INSTANCE_UPDATE_RATE = 31 * 1000;
     private static final int TIME_CONVERSION = 45;
     private static final String TABLE_NAME = "MetricStorageSystem";
     private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
@@ -39,10 +39,13 @@ public class LoadBalancer {
 
     private static List<Instance> instances;
 
+    private static boolean initializing = true;
+
     public static void main(String[] args) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
         init();
         initDatabase();
+        initializing = false;
         System.out.println(instances.size());
         server.createContext("/test", new MyHandler());
         server.setExecutor(null); // creates a default executor
@@ -154,10 +157,8 @@ public class LoadBalancer {
                     .withProvisionedThroughput(
                             new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
 
-            deleteTableRequest = new DeleteTableRequest().withTableName(TABLE_NAME_COUNT);
 
             // Create table if it does not exist yet
-            TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
             TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
             // wait for the table to move into ACTIVE state
@@ -207,10 +208,14 @@ public class LoadBalancer {
 
         for (Instance instance : tmpInstances) {
             if (instance.getImageId().equals(INSTANCES_AMI_ID) && instance.getState().getCode() == 16) {
-                if(testInstance(instance)) {
+                boolean test = testInstance(instance);
+                if(test) {
+                    System.out.println("Instance " + instance.getPublicIpAddress() + " passed the test");
                     instances.add(instance);
                 }
-                else {
+
+                if(!test && !initializing) {
+                    System.out.println("Instance " + instance.getPublicIpAddress() + " failed the test");
                     deleteIpFromDB(instance.getPrivateIpAddress());
                 }
             }
@@ -218,14 +223,18 @@ public class LoadBalancer {
     }
 
     private static boolean testInstance(Instance instance) throws IOException {
-        String query = "testtest";
-        URL url = new URL("http://" + instance.getPublicIpAddress() + ":8000/test" + "?" + query);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("GET");
-        if(getContent(conn.getContent()).equals("testtest")){
-            return true;
+        try {
+            String query = "testtest";
+            URL url = new URL("http://" + instance.getPublicIpAddress() + ":8000/test" + "?" + query);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            if (conn.getResponseCode() == 200) {
+                return true;
+            }
+            return false;
+        } catch (java.net.ConnectException e){
+            return false;
         }
-        return false;
     }
 
     private static String getContent(Object content) throws IOException {
@@ -265,42 +274,56 @@ public class LoadBalancer {
             // Forward the request
             String query = t.getRequestURI().getQuery();
             int timeout = getRightTimeout(query, ipAndThreads[1]);
+
             try {
-
-                redirectTimeout(t, instanceIp, query, timeout, false);
-
+                redirect(t, instanceIp, query, timeout, false);
             } catch (java.net.SocketTimeoutException e) {
-                System.out.println("socketTimeout o que fazer");
+                System.out.println("TimeoutException");
                 try {
-                    redirectTimeout(t, instanceIp, query, -1, true);
-                    redirectTimeout(t, instanceIp, query, timeout * 2, false);
+                    if (testInstance(i)) {
+                        System.out.println("Instance alive going to double timeout");
+                        redirect(t, instanceIp, query, timeout * 2, false);
+                    } else {
+                        throw new IOException();
+                    }
                 } catch (IOException ex) {
+                    System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it and " +
+                            "redirect request");
                     deleteIpFromDB(i.getPrivateIpAddress());
                     instances.remove(i);
                     handle(t);
                 }
-            } catch (IOException e){
+            } catch (IOException e) {
+                System.out.println("Instance " + i.getPublicIpAddress() + "should be dead going to remove it, got IO");
                 deleteIpFromDB(i.getPrivateIpAddress());
                 instances.remove(i);
+                handle(t);
             }
         }
 
-        private void redirectTimeout(HttpExchange t, String instanceIp, String query, int timeout, boolean b)
+        private void redirect(HttpExchange t, String instanceIp, String query, int timeout, boolean test)
                 throws IOException {
             URL url;
-            if(b){
+            if (test) {
                 url = new URL("http://" + instanceIp + ":8000/test" + "?" + query);
-            }
-            else{
+            } else {
                 url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
             }
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             System.out.println("Timeout value: " + timeout);
-            conn.setRequestMethod("GET");
-            if(timeout != -1){
+            //if (timeout != -1) {
+            //    conn.setConnectTimeout(timeout);//ir buscar metricas
+            //}
+
+            if (timeout != -1) {
                 conn.setConnectTimeout(timeout);//ir buscar metricas
+
+            }
+            if (timeout == -1) {
+                conn.setConnectTimeout(1);//ir buscar metricas
             }
 
+            conn.setRequestMethod("GET");
             // Get the right information from the request
             t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
             t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
