@@ -81,7 +81,7 @@ public class AutoScaler {
                 createInstance();
             }
 
-            if(decCounter == instances.size() && instances.size() >= MIN_INSTANCES){
+            if(decCounter == instances.size() && instances.size() > MIN_INSTANCES){
                 try {
                     killInstance(LoadBalancer.getFreeInstance());
                 } catch (RuntimeException e){

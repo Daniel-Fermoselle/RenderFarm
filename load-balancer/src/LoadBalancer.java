@@ -76,7 +76,8 @@ public class LoadBalancer {
         dynamoDB = AmazonDynamoDBClientBuilder.standard().withRegion("eu-central-1")
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
-        cloudWatch = AmazonCloudWatchClientBuilder.standard().withRegion("eu-west-1").withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
+        cloudWatch = AmazonCloudWatchClientBuilder.standard().withRegion("eu-central-1")
+                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
         instanceActiveRequests = new HashMap<Instance, Integer>();
 
@@ -269,7 +270,7 @@ public class LoadBalancer {
     public static String getFreeInstance() {
         for (Instance instance : instanceActiveRequests.keySet()) {
             if (instanceActiveRequests.get(instance) == 0){
-                return instance.getPublicIpAddress();
+                return instance.getInstanceId();
             }
         }
         throw new RuntimeException("No idle instances");
