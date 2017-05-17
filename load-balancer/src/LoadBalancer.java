@@ -3,10 +3,10 @@ import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
+import com.amazonaws.services.cloudwatch.AmazonCloudWatch;
+import com.amazonaws.services.cloudwatch.AmazonCloudWatchClientBuilder;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
-import com.amazonaws.services.dynamodbv2.document.DeleteItemOutcome;
-import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.dynamodbv2.model.*;
 import com.amazonaws.services.dynamodbv2.util.TableUtils;
 import com.amazonaws.services.ec2.AmazonEC2;
@@ -21,7 +21,6 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -32,12 +31,18 @@ public class LoadBalancer {
     private static final int TIME_CONVERSION = 45;
     private static final String TABLE_NAME = "MetricStorageSystem";
     private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
-    private static final String INSTANCES_AMI_ID = "ami-1d9b4272";
+    public static final String INSTANCES_AMI_ID = "ami-1d9b4272";
 
     private static AmazonDynamoDB dynamoDB;
     private static AmazonEC2 ec2;
+    private static AmazonCloudWatch cloudWatch;
+
+
+    private static AutoScaler as;
 
     private static List<Instance> instances;
+
+    private static HashMap<Instance, Integer> instanceActiveRequests;
 
     private static boolean initializing = true;
 
@@ -71,6 +76,12 @@ public class LoadBalancer {
         dynamoDB = AmazonDynamoDBClientBuilder.standard().withRegion("eu-central-1")
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
+        cloudWatch = AmazonCloudWatchClientBuilder.standard().withRegion("eu-west-1").withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
+
+        instanceActiveRequests = new HashMap<Instance, Integer>();
+
+        as = new AutoScaler(ec2, dynamoDB, cloudWatch);
+
         getInstances();
 
         // create thread to from time to time to update instances
@@ -80,6 +91,7 @@ public class LoadBalancer {
             public void run() {
                 System.out.println("Going to update the instances that I know");
                 try {
+                    as.updateInstances();
                     getInstances();
                 } catch (IOException e) {
                     throw new RuntimeException(e.getMessage());
@@ -212,11 +224,15 @@ public class LoadBalancer {
                 if(test) {
                     System.out.println("Instance " + instance.getPublicIpAddress() + " passed the test");
                     instances.add(instance);
+                    if (!instanceActiveRequests.keySet().contains(instance)){
+                        instanceActiveRequests.put(instance, 0);
+                    }
                 }
 
                 if(!test && !initializing) {
                     System.out.println("Instance " + instance.getPublicIpAddress() + " failed the test");
                     deleteIpFromDB(instance.getPrivateIpAddress());
+                    instanceActiveRequests.remove(instance);
                 }
             }
         }
@@ -250,6 +266,15 @@ public class LoadBalancer {
         return text.toString();
     }
 
+    public static String getFreeInstance() {
+        for (Instance instance : instanceActiveRequests.keySet()) {
+            if (instanceActiveRequests.get(instance) == 0){
+                return instance.getPublicIpAddress();
+            }
+        }
+        throw new RuntimeException("No idle instances");
+    }
+
     static class MyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
@@ -270,6 +295,7 @@ public class LoadBalancer {
             String[] ipAndThreads = getIpAndThreadsOfInstance();
             Instance i = getInstanceFromIp(ipAndThreads[0]);
             String instanceIp = i.getPublicIpAddress();
+            instanceActiveRequests.put(i, instanceActiveRequests.get(i) + 1);
 
             // Forward the request
             String query = t.getRequestURI().getQuery();
@@ -277,12 +303,14 @@ public class LoadBalancer {
 
             try {
                 redirect(t, instanceIp, query, timeout, false);
+                instanceActiveRequests.put(i, instanceActiveRequests.get(i) - 1);
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("TimeoutException");
                 try {
                     if (testInstance(i)) {
                         System.out.println("Instance alive going to double timeout");
                         redirect(t, instanceIp, query, timeout * 2, false);
+                        instanceActiveRequests.put(i, instanceActiveRequests.get(i) - 1);
                     } else {
                         throw new IOException();
                     }
@@ -291,38 +319,26 @@ public class LoadBalancer {
                             "redirect request");
                     deleteIpFromDB(i.getPrivateIpAddress());
                     instances.remove(i);
+                    instanceActiveRequests.remove(i);
                     handle(t);
                 }
             } catch (IOException e) {
                 System.out.println("Instance " + i.getPublicIpAddress() + "should be dead going to remove it, got IO");
                 deleteIpFromDB(i.getPrivateIpAddress());
                 instances.remove(i);
+                instanceActiveRequests.remove(i);
                 handle(t);
             }
         }
 
         private void redirect(HttpExchange t, String instanceIp, String query, int timeout, boolean test)
                 throws IOException {
-            URL url;
-            if (test) {
-                url = new URL("http://" + instanceIp + ":8000/test" + "?" + query);
-            } else {
-                url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
-            }
+            URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             System.out.println("Timeout value: " + timeout);
-            //if (timeout != -1) {
-            //    conn.setConnectTimeout(timeout);//ir buscar metricas
-            //}
-
             if (timeout != -1) {
                 conn.setConnectTimeout(timeout);//ir buscar metricas
-
             }
-            if (timeout == -1) {
-                conn.setConnectTimeout(1);//ir buscar metricas
-            }
-
             conn.setRequestMethod("GET");
             // Get the right information from the request
             t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
