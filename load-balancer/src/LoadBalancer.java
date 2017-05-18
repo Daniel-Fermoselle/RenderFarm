@@ -29,9 +29,10 @@ public class LoadBalancer {
 
     private static final long INSTANCE_UPDATE_RATE = 31 * 1000;
     private static final int TIME_CONVERSION = 45;
-    private static final String TABLE_NAME = "MetricStorageSystem";
     private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
+    private static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
     public static final String INSTANCES_AMI_ID = "ami-1d9b4272";
+    private static final int NB_MAX_THREADS = 5;
 
     private static AmazonDynamoDB dynamoDB;
     private static AmazonEC2 ec2;
@@ -42,7 +43,7 @@ public class LoadBalancer {
 
     private static List<Instance> instances;
 
-    private static HashMap<Instance, Integer> instanceActiveRequests;
+    private static HashMap<Instance, Integer> instanceActiveThreads;
 
     private static boolean initializing = true;
 
@@ -79,7 +80,7 @@ public class LoadBalancer {
         cloudWatch = AmazonCloudWatchClientBuilder.standard().withRegion("eu-central-1")
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
-        instanceActiveRequests = new HashMap<Instance, Integer>();
+        setInstanceActiveThreads(new HashMap<Instance, Integer>());
 
         as = new AutoScaler(ec2, dynamoDB, cloudWatch);
 
@@ -97,65 +98,23 @@ public class LoadBalancer {
                 } catch (IOException e) {
                     throw new RuntimeException(e.getMessage());
                 }
-                cleanOldInstances();
             }
         }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
 
-    }
-
-    private static void cleanOldInstances() {
-        HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
-        Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
-                .withAttributeValueList(new AttributeValue().withS("0"));
-        scanFilter.put("threads", condition);
-
-        ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
-        ScanResult scanResult = dynamoDB.scan(scanRequest);
-
-        boolean inInstances;
-        for (Map<String, AttributeValue> key : scanResult.getItems()){
-            String ipInMap = key.get("ip").getS();
-            inInstances = false;
-
-            for (Instance instance : instances) {
-                if(instance.getPrivateIpAddress().equals(ipInMap)){
-                    inInstances =true;
-                }
-            }
-
-            if(!inInstances){
-                deleteIpFromDB(ipInMap);
-            }
-
-        }
-
-    }
-
-    private static void deleteIpFromDB(String ipAddr) {
-        Map<String, AttributeValue> key = new HashMap<>();
-        key.put("ip", new AttributeValue().withS(ipAddr));
-
-        DeleteItemRequest deleteRequest = new DeleteItemRequest().withTableName(TABLE_NAME).withKey(key);
-
-        DeleteItemResult result = dynamoDB.deleteItem(deleteRequest);
-        System.out.println("Result from removing item: " + result);
     }
 
     private static void initDatabase() throws Exception {
         try {
             // Create a table with a primary hash key named 'ip', which holds
             // a string
-            CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(TABLE_NAME)
-                    .withKeySchema(new KeySchemaElement().withAttributeName("ip").withKeyType(KeyType.HASH))
+            CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(TABLE_NAME_SUCCESS)
+                    .withKeySchema(new KeySchemaElement().withAttributeName("filename").withKeyType(KeyType.HASH))
                     .withAttributeDefinitions(
-                            new AttributeDefinition().withAttributeName("ip").withAttributeType(ScalarAttributeType.S))
+                            new AttributeDefinition().withAttributeName("filename").withAttributeType(ScalarAttributeType.S))
                     .withProvisionedThroughput(
                             new ProvisionedThroughput().withReadCapacityUnits(1L).withWriteCapacityUnits(1L));
 
-            DeleteTableRequest deleteTableRequest = new DeleteTableRequest().withTableName(TABLE_NAME);
-
             // Create table if it does not exist yet
-            TableUtils.deleteTableIfExists(dynamoDB, deleteTableRequest);
             TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
             //------------------------------------//
@@ -175,13 +134,13 @@ public class LoadBalancer {
             TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
             // wait for the table to move into ACTIVE state
-            TableUtils.waitUntilActive(dynamoDB, TABLE_NAME);
+            TableUtils.waitUntilActive(dynamoDB, TABLE_NAME_SUCCESS);
 
             // wait for the table to move into ACTIVE state
             TableUtils.waitUntilActive(dynamoDB, TABLE_NAME_COUNT);
 
             // Describe our new table
-            DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME);
+            DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME_SUCCESS);
             TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
             System.out.println("Table Description: " + tableDescription);
 
@@ -222,21 +181,30 @@ public class LoadBalancer {
         for (Instance instance : tmpInstances) {
             if (instance.getImageId().equals(INSTANCES_AMI_ID) && instance.getState().getCode() == 16) {
                 boolean test = testInstance(instance);
+                boolean inInstanceActiveThreads = getInstanceActiveThreads().keySet().contains(instance);
                 if(test) {
                     System.out.println("Instance " + instance.getPublicIpAddress() + " passed the test");
                     instances.add(instance);
-                    if (!instanceActiveRequests.keySet().contains(instance)){
-                        instanceActiveRequests.put(instance, 0);
+                    if (!inInstanceActiveThreads){
+                        putInstanceActiveThreads(instance, NB_MAX_THREADS);
                     }
                 }
 
                 if(!test && !initializing) {
                     System.out.println("Instance " + instance.getPublicIpAddress() + " failed the test");
-                    deleteIpFromDB(instance.getPrivateIpAddress());
-                    instanceActiveRequests.remove(instance);
+                    if (!inInstanceActiveThreads) {
+                        removeInstanceActiveThreads(instance);
+                    }
                 }
             }
         }
+
+        System.out.println("------------------");
+        for (Instance instance : getInstanceActiveThreads().keySet()) {
+            System.out.println(instance.getPrivateIpAddress() + " -- " + getInstanceActiveThreads(instance));
+        }
+        System.out.println("------------------");
+
     }
 
     private static boolean testInstance(Instance instance) throws IOException {
@@ -268,12 +236,52 @@ public class LoadBalancer {
     }
 
     public static String getFreeInstance() {
-        for (Instance instance : instanceActiveRequests.keySet()) {
-            if (instanceActiveRequests.get(instance) == 0){
+        for (Instance instance : getInstanceActiveThreads().keySet()) {
+            if (getInstanceActiveThreads(instance) == NB_MAX_THREADS){
                 return instance.getInstanceId();
             }
         }
         throw new RuntimeException("No idle instances");
+    }
+
+    public static synchronized HashMap<Instance, Integer> getInstanceActiveThreads() {
+        return instanceActiveThreads;
+    }
+
+    public static synchronized void setInstanceActiveThreads(HashMap<Instance, Integer> instanceActiveThreads) {
+        LoadBalancer.instanceActiveThreads = instanceActiveThreads;
+    }
+
+    public static synchronized void putInstanceActiveThreads(Instance i, Integer nbThreads){
+        LoadBalancer.instanceActiveThreads.put(i, nbThreads);
+    }
+
+    public static synchronized void removeInstanceActiveThreads(Instance i){
+        LoadBalancer.instanceActiveThreads.remove(i);
+    }
+
+    public static synchronized Integer getInstanceActiveThreads(Instance i){
+        return LoadBalancer.instanceActiveThreads.get(i);
+    }
+
+    public static synchronized void incInstanceActiveThreads(Instance i){
+        int nbThreads = LoadBalancer.instanceActiveThreads.get(i);
+        if(nbThreads < NB_MAX_THREADS) {
+            LoadBalancer.instanceActiveThreads.put(i,  nbThreads + 1);
+        }
+        else {
+            throw new RuntimeException("incInstanceActiveThreads when number of maximum threads reached");
+        }
+    }
+
+    public static synchronized void decInstanceActiveThreads(Instance i){
+        int nbThreads = LoadBalancer.instanceActiveThreads.get(i);
+        if(nbThreads > 0) {
+            LoadBalancer.instanceActiveThreads.put(i,  nbThreads - 1);
+        }
+        else {
+            throw new RuntimeException("decInstanceActiveThreads when number of threads is 0");
+        }
     }
 
     static class MyHandler implements HttpHandler {
@@ -294,41 +302,38 @@ public class LoadBalancer {
         public void handle(HttpExchange t) throws IOException {
 
             System.out.println("Got a raytracer request");
-            String[] ipAndThreads = getIpAndThreadsOfInstance();
-            Instance i = getInstanceFromIp(ipAndThreads[0]);
+            Instance i = getInstanceWithMaxThreads();
             String instanceIp = i.getPublicIpAddress();
-            instanceActiveRequests.put(i, instanceActiveRequests.get(i) + 1);
+            incInstanceActiveThreads(i);
 
             // Forward the request
             String query = t.getRequestURI().getQuery();
-            int timeout = getRightTimeout(query, ipAndThreads[1]);
+            int timeout = getRightTimeout(query, getInstanceActiveThreads(i) + "");
 
             try {
                 redirect(t, instanceIp, query, timeout, false);
-                instanceActiveRequests.put(i, instanceActiveRequests.get(i) - 1);
+                decInstanceActiveThreads(i);
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("TimeoutException");
                 try {
                     if (testInstance(i)) {
                         System.out.println("Instance alive going to double timeout");
                         redirect(t, instanceIp, query, timeout * 2, false);
-                        instanceActiveRequests.put(i, instanceActiveRequests.get(i) - 1);
+                        decInstanceActiveThreads(i);
                     } else {
                         throw new IOException();
                     }
                 } catch (IOException ex) {
                     System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it and " +
                             "redirect request");
-                    deleteIpFromDB(i.getPrivateIpAddress());
                     instances.remove(i);
-                    instanceActiveRequests.remove(i);
+                    removeInstanceActiveThreads(i);
                     handle(t);
                 }
             } catch (IOException e) {
                 System.out.println("Instance " + i.getPublicIpAddress() + "should be dead going to remove it, got IO");
-                deleteIpFromDB(i.getPrivateIpAddress());
                 instances.remove(i);
-                instanceActiveRequests.remove(i);
+                removeInstanceActiveThreads(i);
                 handle(t);
             }
         }
@@ -351,49 +356,19 @@ public class LoadBalancer {
             os.close();
         }
 
-        private String[] getIpAndThreadsOfInstance(){
-        	HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
-            Condition condition = new Condition().withComparisonOperator(ComparisonOperator.GE.toString())
-                    .withAttributeValueList(new AttributeValue().withS("0"));
-            scanFilter.put("threads", condition);
+        private Instance getInstanceWithMaxThreads(){
+            int nbThreads = 0;
+            Instance instanceToReturn = null;
+            for (Instance instance : getInstanceActiveThreads().keySet()) {
+                int nbThreadsInMap = getInstanceActiveThreads(instance);
 
-            ScanRequest scanRequest = new ScanRequest(TABLE_NAME).withScanFilter(scanFilter);
-            ScanResult scanResult = dynamoDB.scan(scanRequest);
-            String[] ipAndThreadsQuery = getIpAndThreadsFromQuery(scanResult);
-            System.out.println("Result: " + scanResult);
-            return ipAndThreadsQuery;
-        }
-        
-        private Instance getInstanceFromIp(String ip) {
-            for (Instance instance : instances) {
-                System.out.println(instance.getPrivateIpAddress() + " " + ip);
-                if (instance.getPrivateIpAddress().equals(ip)) {
-                    return instance;
-                }
-            }
-            throw new RuntimeException("Invalid IP");
-        }
-
-        private String[] getIpAndThreadsFromQuery(ScanResult scanResult) {
-            String nbThreads = "";
-            String ip = "";
-
-            for (Map<String, AttributeValue> maps : scanResult.getItems()) {
-                String ipInMap = maps.get("ip").getS();
-                String nbThreadInMap = maps.get("threads").getS();
-
-                if (nbThreads.equals("")) {
-                    nbThreads = nbThreadInMap;
-                    ip = ipInMap;
-                }
-
-                if (Integer.parseInt(nbThreadInMap) > Integer.parseInt(nbThreads)) {
-                    nbThreads = nbThreadInMap;
-                    ip = ipInMap;
+                if(nbThreadsInMap >= nbThreads){
+                    instanceToReturn = instance;
+                    nbThreads = nbThreadsInMap;
                 }
             }
 
-            return new String[] {ip, nbThreads};
+            return instanceToReturn;
         }
 
         private int getRightTimeout(String query, String availableThreads) {
@@ -432,5 +407,7 @@ public class LoadBalancer {
         }
 
     }
+
+
 }
 

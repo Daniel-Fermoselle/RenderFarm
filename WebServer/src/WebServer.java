@@ -34,8 +34,8 @@ import javax.imageio.ImageIO;
 //Hi
 public class WebServer {
 
-	private static final String TABLE_NAME = "MetricStorageSystem";
 	private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
+	private static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
     private static AmazonDynamoDB dynamoDB;
     private static int counter = 0;
 
@@ -49,7 +49,6 @@ public class WebServer {
 		server.createContext("/r.html", new RayTracerHandler());
 		server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
 
-        writeToDatabase();
         server.start();
 	}
 
@@ -67,26 +66,6 @@ public class WebServer {
 				.withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
 	}
-	
-
-    private static void writeToDatabase() throws IOException {
-        try {
-            Map<String, AttributeValue> item = newItem(InetAddress.getLocalHost().getHostAddress(), "5");
-            PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
-            PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
-            System.out.println("Result: " + putItemResult);
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-        }
-
-    }
-
-    private static Map<String, AttributeValue> newItem(String ip, String threads) {
-        Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
-        item.put("ip", new AttributeValue(ip));
-        item.put("threads", new AttributeValue(threads));
-        return item;
-    }
 
 	static class MyHandler implements HttpHandler {
 		@Override
@@ -118,8 +97,6 @@ public class WebServer {
 
 			long l = Long.parseLong(arguments.get("wc")) * Long.parseLong(arguments.get("wr"));
 			createFile(arguments.get("f"), l + "");
-
-            writeToBeforeDatabase();
 
 			BufferedImage img;
 			try {
@@ -154,62 +131,22 @@ public class WebServer {
 			os.close();
 		}
 
-        private void writeToBeforeDatabase() throws IOException {
-            try {
-
-                int waiting = getNbWaitingThreads();
-
-                Map<String, AttributeValue> item;
-                if (counter > 5)
-                    item = newItem(InetAddress.getLocalHost().getHostAddress(), waiting + "");
-                else
-                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - waiting) + "");
-
-                PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
-                PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
-                System.out.println("Result: " + putItemResult);
-            } catch (Exception e) {
-            	e.printStackTrace();
-                System.out.println(e.getMessage());
-            }
-
-        }
-
-        private int getNbWaitingThreads() {
-            int activeCount = Thread.activeCount();
-            int waiting = 0;
-            Thread threads[] = new Thread[activeCount];
-            Thread.enumerate(threads);
-
-            for (Thread thread : threads) {
-                if (thread.getState().equals(Thread.State.WAITING)) {
-                    waiting++;
-                }
-            }
-            return waiting;
-        }
-
         private void writeToDatabase() throws IOException {
             try {
                 HashMap<String, String> fileMetrics = readFile();
 
-                Map<String, AttributeValue> item;
-                if (counter > 5) {
-                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (1 + Integer.parseInt(fileMetrics.get("threads"))) + "");
-                }
-                else {
-                    item = newItem(InetAddress.getLocalHost().getHostAddress(), (5 - Integer.parseInt(fileMetrics.get("threads"))) + "");
-                }
-                PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME, item);
-                PutItemResult putItemResult = dynamoDB.putItem(putItemRequest);
-                System.out.println("Result: " + putItemResult);
-                
                 //---Writing metrics for the request namely the method count
-                item = newCountItem(fileMetrics.get("methodsRun"), 
+				Map<String, AttributeValue> item = newCountItem(fileMetrics.get("methodsRun"),
                 		fileMetrics.get("filename") + "-" + fileMetrics.get("resolution"));
-                putItemRequest = new PutItemRequest(TABLE_NAME_COUNT, item);
-                putItemResult= dynamoDB.putItem(putItemRequest);
+				PutItemRequest putItemRequest = new PutItemRequest(TABLE_NAME_COUNT, item);
+				PutItemResult putItemResult= dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
+
+				//---Writing metrics for the request namely the method count
+				item = newSuccessFactorItem(fileMetrics.get("filename"), fileMetrics.get("successFactor"));
+				putItemRequest = new PutItemRequest(TABLE_NAME_SUCCESS, item);
+				putItemResult= dynamoDB.putItem(putItemRequest);
+				System.out.println("Result: " + putItemResult);
                 
             } catch (Exception e) {//REMOVE?
                 e.printStackTrace();
@@ -217,17 +154,17 @@ public class WebServer {
             }
         }
 
-		private Map<String, AttributeValue> newItem(String ip, String threads) {
-			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
-			item.put("ip", new AttributeValue(ip));
-			item.put("threads", new AttributeValue(threads));
-			return item;
-		}
-		
 		private Map<String, AttributeValue> newCountItem(String count, String filenameResolution) {
 			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
 			item.put("filename-resolution", new AttributeValue(filenameResolution));
 			item.put("count", new AttributeValue(count));
+			return item;
+		}
+
+		private Map<String, AttributeValue> newSuccessFactorItem(String filename, String successFactor) {
+			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
+			item.put("filename", new AttributeValue(filename));
+			item.put("success-factor", new AttributeValue(successFactor));
 			return item;
 		}
 

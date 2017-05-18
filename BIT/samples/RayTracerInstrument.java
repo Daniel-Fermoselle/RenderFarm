@@ -51,7 +51,6 @@ public class RayTracerInstrument {
                 for (Enumeration e = ci.getRoutines().elements(); e.hasMoreElements(); ) {
                     Routine routine = (Routine) e.nextElement();
                     if (routine.getMethodName().startsWith("render")) {
-                        routine.addAfter("RayTracerInstrument", "nbThreads", routine.getMethodName());
                         routine.addAfter("RayTracerInstrument", "writeMetrics", "Nothing");
                     } else if (routine.getMethodName().startsWith("shade")) {
                         routine.addBefore("RayTracerInstrument", "incSuccessfulIntersections", "Nothing");
@@ -82,27 +81,6 @@ public class RayTracerInstrument {
                 ci.write(argv[1] + System.getProperty("file.separator") + infilename);
             }
         }
-    }
-
-    public static synchronized void nbThreads(String methodName) {
-        int count = Thread.activeCount();
-        int waiting = 0;
-        Thread threads[] = new Thread[count];
-        Thread.enumerate(threads);
-
-        for (Thread thread : threads) {
-            if (thread.getState().equals(Thread.State.WAITING)) {
-                waiting++;
-            }
-        }
-
-        String toWrite = "threads=" + waiting + "\n";
-        try {
-            Files.write(Paths.get("metrics-" + Thread.currentThread().getName() + ".out"), toWrite.getBytes(), StandardOpenOption.APPEND);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
     }
 
     public static synchronized void incIntersections(String methodName) {
