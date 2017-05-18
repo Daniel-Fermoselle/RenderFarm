@@ -150,4 +150,6 @@ public class AutoScaler {
         termInstanceReq.withInstanceIds(instanceID);
         ec2.terminateInstances(termInstanceReq);
     }
+
+
 }

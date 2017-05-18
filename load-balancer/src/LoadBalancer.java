@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 
 public class LoadBalancer {
 
-    private static final long INSTANCE_UPDATE_RATE = 31 * 1000;
+    private static final long INSTANCE_UPDATE_RATE = 10 * 1000;
     private static final int TIME_CONVERSION = 45;
     private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
     private static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
@@ -46,7 +46,7 @@ public class LoadBalancer {
     private static HashMap<Instance, Integer> instanceActiveThreads;
 
     public static void main(String[] args) throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
         init();
         initDatabase();
         System.out.println(instances.size());
@@ -195,9 +195,11 @@ public class LoadBalancer {
             }
         }
 
-        for (Instance instance : getInstanceActiveThreads().keySet()) {
-            if (!instances.contains(instance)){
-                removeInstanceActiveThreads(instance);
+        Object[] instancesActiveThreads = getInstanceActiveThreads().keySet().toArray();
+
+        for (Object instance : instancesActiveThreads) {
+            if (!instances.contains((Instance) instance)){
+                removeInstanceActiveThreads((Instance) instance);
             }
         }
 
@@ -247,6 +249,7 @@ public class LoadBalancer {
     }
 
     public static synchronized HashMap<Instance, Integer> getInstanceActiveThreads() {
+
         return instanceActiveThreads;
     }
 
@@ -313,14 +316,14 @@ public class LoadBalancer {
             int timeout = getRightTimeout(query, getInstanceActiveThreads(i) + "");
 
             try {
-                redirect(t, instanceIp, query, timeout, false);
+                redirect(t, instanceIp, query, timeout);
                 incInstanceActiveThreads(i);
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("TimeoutException");
                 try {
                     if (testInstance(i)) {
                         System.out.println("Instance alive going to double timeout");
-                        redirect(t, instanceIp, query, timeout * 2, false);
+                        redirect(t, instanceIp, query, timeout * 2);
                         incInstanceActiveThreads(i);
                     } else {
                         throw new IOException();
@@ -340,7 +343,7 @@ public class LoadBalancer {
             }
         }
 
-        private void redirect(HttpExchange t, String instanceIp, String query, int timeout, boolean test)
+        private void redirect(HttpExchange t, String instanceIp, String query, int timeout)
                 throws IOException {
             URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
