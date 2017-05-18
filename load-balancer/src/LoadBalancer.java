@@ -46,7 +46,7 @@ public class LoadBalancer {
     private static HashMap<Instance, Integer> instanceActiveThreads;
 
     public static void main(String[] args) throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
         init();
         initDatabase();
         System.out.println(instances.size());
@@ -192,6 +192,12 @@ public class LoadBalancer {
                         removeInstanceActiveThreads(instance);
                     }
                 }
+            }
+        }
+
+        for (Instance instance : getInstanceActiveThreads().keySet()) {
+            if (!instances.contains(instance)){
+                removeInstanceActiveThreads(instance);
             }
         }
 
