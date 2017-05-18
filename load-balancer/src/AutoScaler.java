@@ -151,5 +151,10 @@ public class AutoScaler {
         ec2.terminateInstances(termInstanceReq);
     }
 
-
+    //0 - 100
+    private int weight(Instance i){
+        int weight = 0;
+        
+        return weight;
+    }
 }

@@ -44,9 +44,10 @@ public class LoadBalancer {
     private static List<Instance> instances;
 
     private static HashMap<Instance, Integer> instanceActiveThreads;
+    private static HashMap<Instance, ArrayList<String>> runningRequests;
 
     public static void main(String[] args) throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
         init();
         initDatabase();
         System.out.println(instances.size());
@@ -78,6 +79,8 @@ public class LoadBalancer {
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
         setInstanceActiveThreads(new HashMap<Instance, Integer>());
+        setRunningRequests(new HashMap<Instance, ArrayList<String>>());
+
 
         as = new AutoScaler(ec2, dynamoDB, cloudWatch);
 
@@ -184,12 +187,14 @@ public class LoadBalancer {
                     instances.add(instance);
                     if (!inInstanceActiveThreads){
                         putInstanceActiveThreads(instance, NB_MAX_THREADS);
+                        putRunningRequests(instance, new ArrayList<String>());
                     }
                 }
                 else {
                     System.out.println("Instance " + instance.getPublicIpAddress() + " failed the test");
                     if (!inInstanceActiveThreads) {
                         removeInstanceActiveThreads(instance);
+                        removeRunningRequests(instance);
                     }
                 }
             }
@@ -200,12 +205,20 @@ public class LoadBalancer {
         for (Object instance : instancesActiveThreads) {
             if (!instances.contains((Instance) instance)){
                 removeInstanceActiveThreads((Instance) instance);
+                removeRunningRequests((Instance) instance);
             }
         }
 
         System.out.println("------------------");
         for (Instance instance : getInstanceActiveThreads().keySet()) {
             System.out.println(instance.getPrivateIpAddress() + " -- " + getInstanceActiveThreads(instance));
+        }
+
+        for ( Instance instance: runningRequests.keySet()) {
+            System.out.println("For Instance " + instance.getPrivateIpAddress());
+            for (String request : runningRequests.get(instance)) {
+                System.out.println("\t Running request " + request);
+            }
         }
         System.out.println("------------------");
 
@@ -289,6 +302,38 @@ public class LoadBalancer {
         }
     }
 
+    public static synchronized HashMap<Instance, ArrayList<String>> getRunningRequests() {
+        return runningRequests;
+    }
+
+    public static synchronized void setRunningRequests(HashMap<Instance, ArrayList<String>> runningRequests) {
+        LoadBalancer.runningRequests = runningRequests;
+    }
+
+    private static synchronized void putRunningRequests(Instance instance, ArrayList<String> objects) {
+        LoadBalancer.runningRequests.put(instance, objects);
+    }
+
+    private static synchronized void removeRunningRequests(Instance instance) {
+        LoadBalancer.runningRequests.remove(instance);
+    }
+
+    public static synchronized ArrayList<String> getRunningRequests(Instance i){
+        return LoadBalancer.runningRequests.get(i);
+    }
+
+    private static synchronized void addRequestToRunningRequests(Instance i, String query) {
+        ArrayList<String> arrayListInMap = LoadBalancer.runningRequests.get(i);
+        arrayListInMap.add(query);
+        LoadBalancer.runningRequests.put(i, arrayListInMap);
+    }
+
+    private static synchronized void deleteRequestFromRunningRequests(Instance i, String query) {
+        ArrayList<String> arrayListInMap = LoadBalancer.runningRequests.get(i);
+        arrayListInMap.remove(query);
+        LoadBalancer.runningRequests.put(i, arrayListInMap);
+    }
+
     static class MyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
@@ -309,14 +354,16 @@ public class LoadBalancer {
             System.out.println("Got a raytracer request");
             Instance i = getInstanceWithMaxThreads();
             String instanceIp = i.getPublicIpAddress();
-            decInstanceActiveThreads(i);
 
             // Forward the request
             String query = t.getRequestURI().getQuery();
+            decInstanceActiveThreads(i);
+            addRequestToRunningRequests(i, query);
             int timeout = getRightTimeout(query, getInstanceActiveThreads(i) + "");
 
             try {
                 redirect(t, instanceIp, query, timeout);
+                deleteRequestFromRunningRequests(i, query);
                 incInstanceActiveThreads(i);
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("TimeoutException");
@@ -324,6 +371,7 @@ public class LoadBalancer {
                     if (testInstance(i)) {
                         System.out.println("Instance alive going to double timeout");
                         redirect(t, instanceIp, query, timeout * 2);
+                        deleteRequestFromRunningRequests(i, query);
                         incInstanceActiveThreads(i);
                     } else {
                         throw new IOException();
@@ -333,12 +381,14 @@ public class LoadBalancer {
                             "redirect request");
                     instances.remove(i);
                     removeInstanceActiveThreads(i);
+                    removeRunningRequests(i);
                     handle(t);
                 }
             } catch (IOException e) {
                 System.out.println("Instance " + i.getPublicIpAddress() + "should be dead going to remove it, got IO");
                 instances.remove(i);
                 removeInstanceActiveThreads(i);
+                removeRunningRequests(i);
                 handle(t);
             }
         }
@@ -372,9 +422,6 @@ public class LoadBalancer {
                     nbThreads = nbThreadsInMap;
                 }
 
-                if(!instances.contains(instance)){
-                  removeInstanceActiveThreads(instance);
-                }
             }
 
             return instanceToReturn;
