@@ -19,12 +19,10 @@ public class AutoScaler {
 
     private AmazonEC2 ec2;
     private AmazonDynamoDB dynamoDB;
-    private AmazonCloudWatch cloudWatch;
 
-    public AutoScaler(AmazonEC2 ec2, AmazonDynamoDB dynamoDB, AmazonCloudWatch cloudWatch) {
+    public AutoScaler(AmazonEC2 ec2, AmazonDynamoDB dynamoDB) {
         this.ec2 = ec2;
         this.dynamoDB = dynamoDB;
-        this.cloudWatch = cloudWatch;
 
         createInstance();
         createInstance();

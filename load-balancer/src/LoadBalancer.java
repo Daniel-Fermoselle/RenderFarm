@@ -37,7 +37,6 @@ public class LoadBalancer {
 
     private static AmazonDynamoDB dynamoDB;
     private static AmazonEC2 ec2;
-    private static AmazonCloudWatch cloudWatch;
 
 
     private static AutoScaler as;
@@ -73,17 +72,15 @@ public class LoadBalancer {
         }
         ec2 = AmazonEC2ClientBuilder.standard().withRegion("eu-central-1")
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
-        dynamoDB = AmazonDynamoDBClientBuilder.standard().withRegion("eu-central-1")
-                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
-        cloudWatch = AmazonCloudWatchClientBuilder.standard().withRegion("eu-central-1")
+        dynamoDB = AmazonDynamoDBClientBuilder.standard().withRegion("eu-central-1")
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
 
         setInstanceActiveThreads(new HashMap<Instance, Integer>());
         setRunningRequests(new HashMap<Instance, ArrayList<String>>());
 
 
-        as = new AutoScaler(ec2, dynamoDB, cloudWatch);
+        as = new AutoScaler(ec2, dynamoDB);
 
         getInstances();
 
