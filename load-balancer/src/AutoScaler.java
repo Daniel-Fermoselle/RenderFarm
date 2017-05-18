@@ -5,6 +5,7 @@ import com.amazonaws.services.cloudwatch.model.Dimension;
 import com.amazonaws.services.cloudwatch.model.GetMetricStatisticsRequest;
 import com.amazonaws.services.cloudwatch.model.GetMetricStatisticsResult;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.model.*;
 import com.amazonaws.services.ec2.AmazonEC2;
 import com.amazonaws.services.ec2.model.*;
 
@@ -25,7 +26,6 @@ public class AutoScaler {
         this.cloudWatch = cloudWatch;
 
         createInstance();
-        createInstance();
     }
 
     public void updateInstances() {
@@ -45,6 +45,8 @@ public class AutoScaler {
             for (Instance instance : instances) {
                 String name = instance.getInstanceId();
                 String state = instance.getState().getName();
+
+                System.out.println("Instance " + instance.getPrivateIpAddress() + " said " + weight(instance));
 
                 if (state.equals("running")) {
                     System.out.println("running instance id = " + name);
@@ -152,9 +154,69 @@ public class AutoScaler {
     }
 
     //0 - 100
-    private int weight(Instance i){
-        int weight = 0;
-        
-        return weight;
+    private boolean weight(Instance i){
+        ArrayList<String> runningRequests = LoadBalancer.getRunningRequests(i);
+        ArrayList<Double> methodCount = new ArrayList<>();
+        ArrayList<Double> successFactor = new ArrayList<>();
+
+        if (runningRequests == null || runningRequests.size() == 0) {
+            return false;
+        }
+
+        for (String runningRequest : runningRequests) {
+            HashMap<String, String> request = LoadBalancer.processQuery(runningRequest);
+
+            Double nbMethodCount = getMethodCounts(request);
+            Double nbSuccessFactor = getSuccessFactor(request);
+
+            System.out.println("For request " + runningRequest);
+            System.out.println("\tnbMethodCount = " + nbMethodCount);
+            System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
+
+            //Query and get methodCount
+            methodCount.add(nbMethodCount);
+
+            //Query and get successFactor
+            successFactor.add(nbSuccessFactor);
+        }
+
+        ArrayList<Integer> integers = Heuristic.calculateRank(methodCount, successFactor);
+
+        if (integers == null) {
+            return false;
+        }
+
+        return Heuristic.needToCreateInstance(integers);
+    }
+
+    private Double getMethodCounts(HashMap<String, String> request) {
+        HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+        long resolution = Long.parseLong(request.get("wc")) * Long.parseLong(request.get("wr"));
+        Condition condition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
+                .withAttributeValueList(new AttributeValue().withS(request.get("f") + "-" + resolution + ""));
+        scanFilter.put("filename-resolution", condition);
+
+        ScanRequest scanRequest = new ScanRequest(LoadBalancer.TABLE_NAME_COUNT).withScanFilter(scanFilter);
+        ScanResult scanResult = dynamoDB.scan(scanRequest);
+        for (Map<String, AttributeValue> maps : scanResult.getItems()) {
+            return Double.parseDouble(maps.get("count").getS()); //MAYBE WE NEED MORE VERIFICATIONS
+        }
+
+        return -1.0;
+    }
+
+    private Double getSuccessFactor(HashMap<String, String> request) {
+        HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
+        Condition condition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
+                .withAttributeValueList(new AttributeValue().withS(request.get("f")));
+        scanFilter.put("filename", condition);
+
+        ScanRequest scanRequest = new ScanRequest(LoadBalancer.TABLE_NAME_SUCCESS).withScanFilter(scanFilter);
+        ScanResult scanResult = dynamoDB.scan(scanRequest);
+        for (Map<String, AttributeValue> maps : scanResult.getItems()) {
+            return Double.parseDouble(maps.get("success-factor").getS()); //MAYBE WE NEED MORE VERIFICATIONS
+        }
+
+        return -1.0;
     }
 }

@@ -29,8 +29,8 @@ public class LoadBalancer {
 
     private static final long INSTANCE_UPDATE_RATE = 10 * 1000;
     private static final int TIME_CONVERSION = 45;
-    private static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
-    private static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
+    public static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
+    public static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
     public static final String INSTANCES_AMI_ID = "ami-1d9b4272";
     private static final int NB_MAX_THREADS = 5;
 
@@ -214,10 +214,12 @@ public class LoadBalancer {
             System.out.println(instance.getPrivateIpAddress() + " -- " + getInstanceActiveThreads(instance));
         }
 
-        for ( Instance instance: runningRequests.keySet()) {
-            System.out.println("For Instance " + instance.getPrivateIpAddress());
-            for (String request : runningRequests.get(instance)) {
-                System.out.println("\t Running request " + request);
+        for ( Instance instance : runningRequests.keySet()) {
+            if (runningRequests.get(instance).size() > 0) {
+                System.out.println("For Instance " + instance.getPrivateIpAddress());
+                for (String request : runningRequests.get(instance)) {
+                    System.out.println("\t Running request " + request);
+                }
             }
         }
         System.out.println("------------------");
@@ -333,6 +335,17 @@ public class LoadBalancer {
         arrayListInMap.remove(query);
         LoadBalancer.runningRequests.put(i, arrayListInMap);
     }
+
+    public static HashMap<String, String> processQuery(String q) {
+        HashMap<String, String> process = new HashMap<String, String>();
+        String[] splitAnds = q.split("&");
+        for (String s : splitAnds) {
+            String[] pair = s.split("=");
+            process.put(pair[0], pair[1]);
+        }
+        return process;
+    }
+
 
     static class MyHandler implements HttpHandler {
         @Override
@@ -452,15 +465,6 @@ public class LoadBalancer {
             return -1;
         }
 
-        private HashMap<String, String> processQuery(String q) {
-            HashMap<String, String> process = new HashMap<String, String>();
-            String[] splitAnds = q.split("&");
-            for (String s : splitAnds) {
-                String[] pair = s.split("=");
-                process.put(pair[0], pair[1]);
-            }
-            return process;
-        }
 
     }
 

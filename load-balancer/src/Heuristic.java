@@ -2,16 +2,21 @@ import java.util.ArrayList;
 
 public class Heuristic {
 	
-	public static ArrayList<Integer> calculateRank(double[] methodsCount, double[] successFactor){
+	public static ArrayList<Integer> calculateRank(ArrayList<Double> methodsCount, ArrayList<Double> successFactor){
 		ArrayList<Integer> instanceRanks = new ArrayList<Integer>();
-		for(int i = 0; i < methodsCount.length ; i++){
-			double x = (methodsCount[i]*((100 + successFactor[i])/100))/1000000;
-			instanceRanks.add(getRank(x));
-		}
-		return instanceRanks;
-	}
-	
-	private static int getRank(double x){
+        for (int i = 0; i < methodsCount.size(); i++) {
+            if (methodsCount.get(i) != -1 && successFactor.get(i) != -1) {
+                double x = (methodsCount.get(i) * ((100 + successFactor.get(i)) / 100)) / 1000000;
+                instanceRanks.add(getRank(x));
+            }
+            else {
+                return null;
+            }
+        }
+        return instanceRanks;
+    }
+
+    private static int getRank(double x){
 		//Rank 4
 		if(x < 1){
 			return 20;
