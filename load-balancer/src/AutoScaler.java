@@ -15,6 +15,7 @@ public class AutoScaler {
 
     private static final int MAX_INSTANCES = 5;
     private static final int MIN_INSTANCES = 2;
+    private static final double ESTIMATION_CONSTANT = 14.9622;
 
     private AmazonEC2 ec2;
     private AmazonDynamoDB dynamoDB;
@@ -26,6 +27,7 @@ public class AutoScaler {
         this.cloudWatch = cloudWatch;
 
         createInstance();
+        createInstance();
     }
 
     public void updateInstances() {
@@ -35,55 +37,22 @@ public class AutoScaler {
             int incCounter = 0;
             int decCounter = 0;
             System.out.println("total instances = " + instances.size());
-            /* TODO total observation time in milliseconds */
-            long offsetInMilliseconds = 1000 * 60 * 10;
-            Dimension instanceDimension = new Dimension();
-            instanceDimension.setName("InstanceId");
-            List<Dimension> dims = new ArrayList<Dimension>();
-            dims.add(instanceDimension);
 
             for (Instance instance : instances) {
-                String name = instance.getInstanceId();
-                String state = instance.getState().getName();
-
                 System.out.println("Instance " + instance.getPrivateIpAddress() + " said " + weight(instance));
 
-                if (state.equals("running")) {
-                    System.out.println("running instance id = " + name);
-                    instanceDimension.setValue(name);
-                    GetMetricStatisticsRequest request = new GetMetricStatisticsRequest()
-                            .withStartTime(new Date(new Date().getTime() - offsetInMilliseconds))
-                            .withNamespace("AWS/EC2")
-                            .withPeriod(60)
-                            .withMetricName("CPUUtilization")
-                            .withStatistics("Average")
-                            .withDimensions(instanceDimension)
-                            .withEndTime(new Date());
-                    GetMetricStatisticsResult getMetricStatisticsResult = cloudWatch.getMetricStatistics(request);
-                    List<Datapoint> datapoints = getMetricStatisticsResult.getDatapoints();
-                    if(datapoints.size() > 0) {
-                        System.out.println(" CPU utilization for instance " + name + " = " + datapoints.get(datapoints.size() - 1).getAverage());
-                        if (datapoints.get(datapoints.size() - 1).getAverage() > 60) {
-                            incCounter++;
-                        }
-
-                        if (datapoints.get(datapoints.size() - 1).getAverage() < 40) {
-                            decCounter++;
-                        }
-                    }
-
-                } else {
-                    System.out.println("instance id = " + name);
+                if (weight(instance)){
+                    incCounter++;
                 }
-
-                System.out.println("Instance State : " + state + ".");
+                else{
+                    decCounter++;
+                }
             }
 
-            if(incCounter == instances.size() && instances.size() <= MAX_INSTANCES){
+            if(incCounter >= (instances.size()/2) && instances.size() <= MAX_INSTANCES && instances.size() != 0){
                 createInstance();
             }
-
-            if(decCounter == instances.size() && instances.size() > MIN_INSTANCES){
+            else if(decCounter > (instances.size()/2) && instances.size() > MIN_INSTANCES){
                 try {
                     killInstance(LoadBalancer.getFreeInstance());
                 } catch (RuntimeException e){
@@ -174,8 +143,12 @@ public class AutoScaler {
             System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
 
             //Query and get methodCount
-            methodCount.add(nbMethodCount);
-
+            if(nbMethodCount != -1.0) {
+                methodCount.add(nbMethodCount);
+            }
+            else {
+                methodCount.add(estimateNbMethodCount(request));
+            }
             //Query and get successFactor
             successFactor.add(nbSuccessFactor);
         }
@@ -187,6 +160,12 @@ public class AutoScaler {
         }
 
         return Heuristic.needToCreateInstance(integers);
+    }
+
+    private Double estimateNbMethodCount(HashMap<String, String> request) {
+        long resolution = Long.parseLong(request.get("wc")) * Long.parseLong(request.get("wr"));
+
+        return ESTIMATION_CONSTANT * resolution;
     }
 
     private Double getMethodCounts(HashMap<String, String> request) {

@@ -33,6 +33,7 @@ public class LoadBalancer {
     public static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
     public static final String INSTANCES_AMI_ID = "ami-1d9b4272";
     private static final int NB_MAX_THREADS = 5;
+    private static final long AS_UPDATE_RATE = 1000 * 60;
 
     private static AmazonDynamoDB dynamoDB;
     private static AmazonEC2 ec2;
@@ -93,13 +94,22 @@ public class LoadBalancer {
             public void run() {
                 System.out.println("Going to update the instances that I know");
                 try {
-                    as.updateInstances();
                     getInstances();
                 } catch (IOException e) {
                     throw new RuntimeException(e.getMessage());
                 }
             }
         }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
+
+        // create thread to from time to time to update instances
+        Timer timer2 = new Timer();
+        timer2.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("Going to update AS");
+                as.updateInstances();
+            }
+        }, AS_UPDATE_RATE, AS_UPDATE_RATE);
 
     }
 
