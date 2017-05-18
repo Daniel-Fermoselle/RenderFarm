@@ -33,7 +33,7 @@ public class LoadBalancer {
     public static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
     public static final String INSTANCES_AMI_ID = "ami-1d9b4272";
     private static final int NB_MAX_THREADS = 5;
-    private static final long AS_UPDATE_RATE = 1000 * 60;
+    private static final long AS_UPDATE_RATE = 1000 * 70;
 
     private static AmazonDynamoDB dynamoDB;
     private static AmazonEC2 ec2;
@@ -193,7 +193,7 @@ public class LoadBalancer {
                 boolean test = testInstance(instance);
                 boolean inInstanceActiveThreads = getInstanceActiveThreads().keySet().contains(instance);
                 if(test) {
-                    System.out.println("Instance " + instance.getPublicIpAddress() + " passed the test");
+                    System.out.println("Instance " + instance.getPrivateIpAddress() + " passed the test");
                     instances.add(instance);
                     if (!inInstanceActiveThreads){
                         putInstanceActiveThreads(instance, NB_MAX_THREADS);
@@ -201,7 +201,7 @@ public class LoadBalancer {
                     }
                 }
                 else {
-                    System.out.println("Instance " + instance.getPublicIpAddress() + " failed the test");
+                    System.out.println("Instance " + instance.getPrivateIpAddress() + " failed the test");
                     if (!inInstanceActiveThreads) {
                         removeInstanceActiveThreads(instance);
                         removeRunningRequests(instance);
@@ -408,7 +408,7 @@ public class LoadBalancer {
                     handle(t);
                 }
             } catch (IOException e) {
-                System.out.println("Instance " + i.getPublicIpAddress() + "should be dead going to remove it, got IO");
+                System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it, got IO");
                 instances.remove(i);
                 removeInstanceActiveThreads(i);
                 removeRunningRequests(i);

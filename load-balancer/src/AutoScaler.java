@@ -49,15 +49,15 @@ public class AutoScaler {
                 }
             }
 
-            if(incCounter >= (instances.size()/2) && instances.size() <= MAX_INSTANCES && instances.size() != 0){
+            if(incCounter > (instances.size() * 0.7) && instances.size() <= MAX_INSTANCES && instances.size() != 0){
                 createInstance();
             }
-            else if(decCounter > (instances.size()/2) && instances.size() > MIN_INSTANCES){
+            else if(decCounter > (instances.size() * 0.7) && instances.size() > MIN_INSTANCES){
                 try {
                     killInstance(LoadBalancer.getFreeInstance());
                 } catch (RuntimeException e){
                     if(e.getMessage().equals("No idle instances")){
-                        System.out.println("No idle instances but machines < 40");
+                        System.out.println("No idle instances but machines returned enough falses");
                     }
                     else {
                         e.printStackTrace();
@@ -138,17 +138,17 @@ public class AutoScaler {
             Double nbMethodCount = getMethodCounts(request);
             Double nbSuccessFactor = getSuccessFactor(request);
 
+            if(nbMethodCount == -1.0) {
+                nbMethodCount = estimateNbMethodCount(request);
+            }
+
             System.out.println("For request " + runningRequest);
             System.out.println("\tnbMethodCount = " + nbMethodCount);
             System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
 
             //Query and get methodCount
-            if(nbMethodCount != -1.0) {
-                methodCount.add(nbMethodCount);
-            }
-            else {
-                methodCount.add(estimateNbMethodCount(request));
-            }
+            methodCount.add(nbMethodCount);
+
             //Query and get successFactor
             successFactor.add(nbSuccessFactor);
         }

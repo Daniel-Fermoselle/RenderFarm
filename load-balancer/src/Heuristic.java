@@ -19,19 +19,19 @@ public class Heuristic {
     private static int getRank(double x){
 		//Rank 4
 		if(x < 1){
-			return 20;
+			return 5;
 		}
 		//Rank 3
 		else if(x < 10){
-			return 34;
+			return 15;
 		}
 		//Rank 2
 		else if(x < 16){
-			return 50;
+			return 24;
 		}
 		//Rank 1
 		else if ( x >= 16){
-			return 100;
+			return 50;
 		}
 		else{
 			throw new RuntimeException("Invalid value to calculate rank value. x ->" + x);
