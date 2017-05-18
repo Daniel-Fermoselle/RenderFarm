@@ -45,13 +45,10 @@ public class LoadBalancer {
 
     private static HashMap<Instance, Integer> instanceActiveThreads;
 
-    private static boolean initializing = true;
-
     public static void main(String[] args) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
         init();
         initDatabase();
-        initializing = false;
         System.out.println(instances.size());
         server.createContext("/test", new MyHandler());
         server.setExecutor(null); // creates a default executor
@@ -189,8 +186,7 @@ public class LoadBalancer {
                         putInstanceActiveThreads(instance, NB_MAX_THREADS);
                     }
                 }
-
-                if(!test && !initializing) {
+                else {
                     System.out.println("Instance " + instance.getPublicIpAddress() + " failed the test");
                     if (!inInstanceActiveThreads) {
                         removeInstanceActiveThreads(instance);
@@ -304,7 +300,7 @@ public class LoadBalancer {
             System.out.println("Got a raytracer request");
             Instance i = getInstanceWithMaxThreads();
             String instanceIp = i.getPublicIpAddress();
-            incInstanceActiveThreads(i);
+            decInstanceActiveThreads(i);
 
             // Forward the request
             String query = t.getRequestURI().getQuery();
@@ -312,14 +308,14 @@ public class LoadBalancer {
 
             try {
                 redirect(t, instanceIp, query, timeout, false);
-                decInstanceActiveThreads(i);
+                incInstanceActiveThreads(i);
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("TimeoutException");
                 try {
                     if (testInstance(i)) {
                         System.out.println("Instance alive going to double timeout");
                         redirect(t, instanceIp, query, timeout * 2, false);
-                        decInstanceActiveThreads(i);
+                        incInstanceActiveThreads(i);
                     } else {
                         throw new IOException();
                     }
@@ -362,9 +358,13 @@ public class LoadBalancer {
             for (Instance instance : getInstanceActiveThreads().keySet()) {
                 int nbThreadsInMap = getInstanceActiveThreads(instance);
 
-                if(nbThreadsInMap >= nbThreads){
+                if(nbThreadsInMap >= nbThreads && instances.contains(instance)){
                     instanceToReturn = instance;
                     nbThreads = nbThreadsInMap;
+                }
+
+                if(!instances.contains(instance)){
+                  removeInstanceActiveThreads(instance);
                 }
             }
 
