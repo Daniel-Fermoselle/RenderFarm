@@ -21,3 +21,5 @@ Note that if you want to run the project locally you only need to execute instru
 Otherwise you should first instrument and compile (instrument.sh) the code then send it (send.sh) and execute it on an AWS server by copying the content of configForAWS to the rc.local file in the etc folder of the instances of WebServer and copying the configForAWSLB to the rc.local of your load-balancer instances.
 	./instrument.sh
 	./send.sh
+
+There is a JMeter script inside the JMeterScript folder.
