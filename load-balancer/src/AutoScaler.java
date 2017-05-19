@@ -18,7 +18,7 @@ public class AutoScaler {
     private static final double ESTIMATION_CONSTANT = 14.9622;
 
     private AmazonEC2 ec2;
-    private AmazonDynamoDB dynamoDB;
+    private static AmazonDynamoDB dynamoDB;
 
     public AutoScaler(AmazonEC2 ec2, AmazonDynamoDB dynamoDB) {
         this.ec2 = ec2;
@@ -34,12 +34,18 @@ public class AutoScaler {
 
             int incCounter = 0;
             int decCounter = 0;
-            System.out.println("total instances = " + instances.size());
+            System.out.println("Total instances = " + instances.size());
 
             for (Instance instance : instances) {
-                System.out.println("Instance " + instance.getPrivateIpAddress() + " said " + weight(instance));
+                boolean weight = weight(instance);
+                if(!weight) {
+                    System.out.println("Instance " + instance.getPrivateIpAddress() + " is ok with the work it has");
+                }
+                else {
+                    System.out.println("Instance " + instance.getPrivateIpAddress() + " needs a friend to help it");
+                }
 
-                if (weight(instance)){
+                if (weight){
                     incCounter++;
                 }
                 else{
@@ -92,7 +98,6 @@ public class AutoScaler {
         List<Reservation> reservations = describeInstancesResult.getReservations();
         Set<Instance> instances = new HashSet<Instance>();
 
-        System.out.println("total reservations = " + reservations.size());
         for (Reservation reservation : reservations) {
             instances.addAll(reservation.getInstances());
         }
@@ -140,9 +145,11 @@ public class AutoScaler {
                 nbMethodCount = estimateNbMethodCount(request);
             }
 
-            System.out.println("For request " + runningRequest);
-            System.out.println("\tnbMethodCount = " + nbMethodCount);
-            System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
+            if (LoadBalancer.DEBUG) {
+                System.out.println("For request " + runningRequest);
+                System.out.println("\tnbMethodCount = " + nbMethodCount);
+                System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
+            }
 
             //Query and get methodCount
             methodCount.add(nbMethodCount);
@@ -160,13 +167,7 @@ public class AutoScaler {
         return Heuristic.needToCreateInstance(integers);
     }
 
-    private Double estimateNbMethodCount(HashMap<String, String> request) {
-        long resolution = Long.parseLong(request.get("wc")) * Long.parseLong(request.get("wr"));
-
-        return ESTIMATION_CONSTANT * resolution;
-    }
-
-    private Double getMethodCounts(HashMap<String, String> request) {
+    public static Double getMethodCounts(HashMap<String, String> request) {
         HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
         long resolution = Long.parseLong(request.get("wc")) * Long.parseLong(request.get("wr"));
         Condition condition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
@@ -182,7 +183,7 @@ public class AutoScaler {
         return -1.0;
     }
 
-    private Double getSuccessFactor(HashMap<String, String> request) {
+    public static Double getSuccessFactor(HashMap<String, String> request) {
         HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
         Condition condition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
                 .withAttributeValueList(new AttributeValue().withS(request.get("f")));
@@ -196,4 +197,12 @@ public class AutoScaler {
 
         return -1.0;
     }
+
+    public static Double estimateNbMethodCount(HashMap<String, String> request) {
+        long resolution = Long.parseLong(request.get("wc")) * Long.parseLong(request.get("wr"));
+
+        return ESTIMATION_CONSTANT * resolution;
+    }
+
+
 }

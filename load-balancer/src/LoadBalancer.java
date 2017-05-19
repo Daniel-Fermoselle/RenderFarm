@@ -25,6 +25,7 @@ import java.net.URL;
 import java.util.*;
 import java.util.concurrent.Executors;
 
+
 public class LoadBalancer {
 
     private static final long INSTANCE_UPDATE_RATE = 10 * 1000;
@@ -34,6 +35,7 @@ public class LoadBalancer {
     public static final String INSTANCES_AMI_ID = "ami-1d9b4272";
     private static final int NB_MAX_THREADS = 5;
     private static final long AS_UPDATE_RATE = 1000 * 70;
+    public static final boolean DEBUG = false;
 
     private static AmazonDynamoDB dynamoDB;
     private static AmazonEC2 ec2;
@@ -50,7 +52,6 @@ public class LoadBalancer {
         HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
         init();
         initDatabase();
-        System.out.println(instances.size());
         server.createContext("/test", new MyHandler());
         server.setExecutor(null); // creates a default executor
 
@@ -103,8 +104,11 @@ public class LoadBalancer {
         timer2.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
+                System.out.println("<><><><><><><><><>");
                 System.out.println("Going to update AS");
                 as.updateInstances();
+                System.out.println("<><><><><><><><><>");
+
             }
         }, AS_UPDATE_RATE, AS_UPDATE_RATE);
 
@@ -145,18 +149,6 @@ public class LoadBalancer {
 
             // wait for the table to move into ACTIVE state
             TableUtils.waitUntilActive(dynamoDB, TABLE_NAME_COUNT);
-
-            // Describe our new table
-            DescribeTableRequest describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME_SUCCESS);
-            TableDescription tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
-            System.out.println("Table Description: " + tableDescription);
-
-            describeTableRequest = new DescribeTableRequest().withTableName(TABLE_NAME_COUNT);
-            tableDescription = dynamoDB.describeTable(describeTableRequest).getTable();
-            System.out.println("Table Description: " + tableDescription);
-            //------------------------------------//
-            //---Create table for count metrics---//
-            //------------------------------------//
 
         } catch (AmazonServiceException ase) {
             System.out.println("Caught an AmazonServiceException, which means your request made it "
@@ -257,7 +249,6 @@ public class LoadBalancer {
             text.append(line);
             line = buff.readLine();
         } while (line != null);
-        System.out.println(text.toString().length());
         return text.toString();
     }
 
@@ -353,7 +344,6 @@ public class LoadBalancer {
         return process;
     }
 
-
     static class MyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
@@ -372,11 +362,12 @@ public class LoadBalancer {
         public void handle(HttpExchange t) throws IOException {
 
             System.out.println("Got a raytracer request");
-            Instance i = getInstanceWithMaxThreads();
-            String instanceIp = i.getPublicIpAddress();
 
             // Forward the request
             String query = t.getRequestURI().getQuery();
+            Instance i = getRightInstance(query);
+            String instanceIp = i.getPublicIpAddress();
+            System.out.println("Instance chosen to handle the request " + i.getPrivateIpAddress() + " " + query);
             decInstanceActiveThreads(i);
             addRequestToRunningRequests(i, query);
             int timeout = getRightTimeout(query, getInstanceActiveThreads(i) + "");
@@ -385,12 +376,14 @@ public class LoadBalancer {
                 redirect(t, instanceIp, query, timeout);
                 deleteRequestFromRunningRequests(i, query);
                 incInstanceActiveThreads(i);
+                System.out.println("Instance " + i.getPrivateIpAddress() + " finished request " + query);
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("TimeoutException");
                 try {
                     if (testInstance(i)) {
                         System.out.println("Instance alive going to double timeout");
                         redirect(t, instanceIp, query, timeout * 2);
+                        System.out.println("Instance " + i.getPrivateIpAddress() + " finished request " + query);
                         deleteRequestFromRunningRequests(i, query);
                         incInstanceActiveThreads(i);
                     } else {
@@ -447,6 +440,16 @@ public class LoadBalancer {
             return instanceToReturn;
         }
 
+        private Instance getRightInstance(String request){
+            for (Instance instance : instances) {
+                if(!weight(instance, request)){
+                    return instance;
+                }
+            }
+
+            return getInstanceWithMaxThreads();
+        }
+
         private int getRightTimeout(String query, String availableThreads) {
             HashMap<String, String> processedQuery = processQuery(query);
             HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
@@ -457,7 +460,6 @@ public class LoadBalancer {
 
             ScanRequest scanRequest = new ScanRequest(TABLE_NAME_COUNT).withScanFilter(scanFilter);
             ScanResult scanResult = dynamoDB.scan(scanRequest);
-            System.out.println("Result: " + scanResult);
 
             return getCountFromQuery(scanResult, availableThreads);
         }
@@ -470,6 +472,55 @@ public class LoadBalancer {
                 return i.intValue();
             }
             return -1;
+        }
+
+        //0 - 100
+        private boolean weight(Instance i, String requestToAdd){
+            if(getInstanceActiveThreads(i) == NB_MAX_THREADS) {
+                return true;
+            }
+
+            ArrayList<String> runningRequests = new ArrayList<>(LoadBalancer.getRunningRequests(i));
+
+            if (runningRequests.size() == 0) {
+                return false;
+            }
+
+            runningRequests.add(requestToAdd);
+
+            ArrayList<Double> methodCount = new ArrayList<>();
+            ArrayList<Double> successFactor = new ArrayList<>();
+
+            for (String runningRequest : runningRequests) {
+                HashMap<String, String> request = LoadBalancer.processQuery(runningRequest);
+
+                Double nbMethodCount = AutoScaler.getMethodCounts(request);
+                Double nbSuccessFactor = AutoScaler.getSuccessFactor(request);
+
+                if(nbMethodCount == -1.0) {
+                    nbMethodCount = AutoScaler.estimateNbMethodCount(request);
+                }
+
+                if(DEBUG) {
+                    System.out.println("For request " + runningRequest);
+                    System.out.println("\tnbMethodCount = " + nbMethodCount);
+                    System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
+                }
+
+                //Query and get methodCount
+                methodCount.add(nbMethodCount);
+
+                //Query and get successFactor
+                successFactor.add(nbSuccessFactor);
+            }
+
+            ArrayList<Integer> integers = Heuristic.calculateRank(methodCount, successFactor);
+
+            if (integers == null) {
+                return false;
+            }
+
+            return Heuristic.needToCreateInstance(integers);
         }
 
 
