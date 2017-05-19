@@ -43,18 +43,20 @@ public class LoadBalancer {
 
     private static List<Instance> instances;
 
+    //Hash map that contain the number of available threads for each instance
     private static HashMap<Instance, Integer> instanceActiveThreads;
+
+    //Hash map that contain the requests that each instance is running
     private static HashMap<Instance, ArrayList<String>> runningRequests;
 
     public static void main(String[] args) throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
         init();
         initDatabase();
         server.createContext("/test", new MyHandler());
-        server.setExecutor(null); // creates a default executor
 
         server.createContext("/r.html", new RayTracerLBHandler());
-        server.setExecutor(Executors.newCachedThreadPool()); // creates a default executor
+        server.setExecutor(Executors.newCachedThreadPool());
 
         server.start();
     }
@@ -78,12 +80,11 @@ public class LoadBalancer {
         setInstanceActiveThreads(new HashMap<Instance, Integer>());
         setRunningRequests(new HashMap<Instance, ArrayList<String>>());
 
-
         as = new AutoScaler(ec2, dynamoDB);
 
         getInstances();
 
-        // create thread to from time to time to update instances
+        // Create thread that from time to time to update instances
         Timer timer = new Timer();
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
@@ -97,7 +98,7 @@ public class LoadBalancer {
             }
         }, INSTANCE_UPDATE_RATE, INSTANCE_UPDATE_RATE);
 
-        // create thread to from time to time to update instances
+        // Create thread that from time to time to run the auto scaler algorithm
         Timer timer2 = new Timer();
         timer2.scheduleAtFixedRate(new TimerTask() {
             @Override
@@ -114,8 +115,9 @@ public class LoadBalancer {
 
     private static void initDatabase() throws Exception {
         try {
-            // Create a table with a primary hash key named 'ip', which holds
-            // a string
+            //-------------------------------------//
+            //---Create table for Success Factor---//
+            //-------------------------------------//
             CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(TABLE_NAME_SUCCESS)
                     .withKeySchema(new KeySchemaElement().withAttributeName("filename").withKeyType(KeyType.HASH))
                     .withAttributeDefinitions(
@@ -127,7 +129,7 @@ public class LoadBalancer {
             TableUtils.createTableIfNotExists(dynamoDB, createTableRequest);
 
             //------------------------------------//
-            //---Create table for count metrics---//
+            //---Create table for Method Count----//
             //------------------------------------//
             createTableRequest = new CreateTableRequest()
                     .withTableName(TABLE_NAME_COUNT)
@@ -165,11 +167,12 @@ public class LoadBalancer {
 
     }
 
+    //Get's the instances that are running, have the specified AMI and run the WebServer app
     private static void getInstances() throws IOException{
         DescribeInstancesResult describeInstancesRequest = ec2.describeInstances();
         List<Reservation> reservations = describeInstancesRequest.getReservations();
         ArrayList<Instance> tmpInstances = new ArrayList<Instance>();
-        instances = new ArrayList<Instance>();
+        setInstances(new ArrayList<Instance>());
 
         for (Reservation reservation : reservations) {
             tmpInstances.addAll(reservation.getInstances());
@@ -181,7 +184,7 @@ public class LoadBalancer {
                 boolean inInstanceActiveThreads = getInstanceActiveThreads().keySet().contains(instance);
                 if(test) {
                     System.out.println("Instance " + instance.getPrivateIpAddress() + " passed the test");
-                    instances.add(instance);
+                    putInstances(instance);
                     if (!inInstanceActiveThreads){
                         putInstanceActiveThreads(instance, NB_MAX_THREADS);
                         putRunningRequests(instance, new ArrayList<String>());
@@ -200,7 +203,7 @@ public class LoadBalancer {
         Object[] instancesActiveThreads = getInstanceActiveThreads().keySet().toArray();
 
         for (Object instance : instancesActiveThreads) {
-            if (!instances.contains((Instance) instance)){
+            if (!getInstancesList().contains((Instance) instance)){
                 removeInstanceActiveThreads((Instance) instance);
                 removeRunningRequests((Instance) instance);
             }
@@ -223,6 +226,7 @@ public class LoadBalancer {
 
     }
 
+    //Health check to the instances
     public static boolean testInstance(Instance instance) throws IOException {
         try {
             String query = "testtest";
@@ -238,6 +242,7 @@ public class LoadBalancer {
         }
     }
 
+    //Gets a instance that has all threads available
     public static Instance getFreeInstance() {
         for (Instance instance : getInstanceActiveThreads().keySet()) {
             if (getInstanceActiveThreads(instance) == NB_MAX_THREADS){
@@ -246,6 +251,10 @@ public class LoadBalancer {
         }
         throw new RuntimeException("No idle instances");
     }
+
+    //------------------------------------//
+    //------- GETTERS AND SETTER ---------//
+    //------------------------------------//
 
     public static synchronized HashMap<Instance, Integer> getInstanceActiveThreads() {
 
@@ -320,10 +329,23 @@ public class LoadBalancer {
         LoadBalancer.runningRequests.put(i, arrayListInMap);
     }
 
-    public static List<Instance> getInstancesList(){
-        return instances;
+    public static synchronized void setInstances(List<Instance> instancesList){
+        LoadBalancer.instances = instancesList;
     }
 
+    public static synchronized void putInstances(Instance instance){
+        LoadBalancer.instances.add(instance);
+    }
+
+    public static synchronized List<Instance> getInstancesList(){
+        return LoadBalancer.instances;
+    }
+
+    //------------------------------------//
+    //------- GETTERS AND SETTER END -----//
+    //------------------------------------//
+
+    //Receives a query and returns a map with each parameter and his value
     public static HashMap<String, String> processQuery(String q) {
         HashMap<String, String> process = new HashMap<String, String>();
         String[] splitAnds = q.split("&");
@@ -334,6 +356,7 @@ public class LoadBalancer {
         return process;
     }
 
+    //Class for the test request
     static class MyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {

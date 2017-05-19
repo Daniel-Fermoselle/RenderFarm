@@ -11,57 +11,66 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class RayTracerLBHandler implements HttpHandler {
+    //Method that handles a raytracer request
     @Override
     public void handle(HttpExchange t) throws IOException {
-
-        System.out.println("Got a raytracer request");
-
-        // Forward the request
-        String query = t.getRequestURI().getQuery();
-        Instance i = getRightInstance(query);
-        while (i == null) {
-            i = getRightInstance(query);
-        }
-        String instanceIp = i.getPublicIpAddress();
-        System.out.println("Instance chosen to handle the request " + i.getPrivateIpAddress() + " " + query);
-        LoadBalancer.decInstanceActiveThreads(i);
-        LoadBalancer.addRequestToRunningRequests(i, query);
-        int timeout = getRightTimeout(query, LoadBalancer.getInstanceActiveThreads(i) + "");
-
         try {
-            redirect(t, instanceIp, query, timeout);
-            LoadBalancer.deleteRequestFromRunningRequests(i, query);
-            LoadBalancer.incInstanceActiveThreads(i);
-            System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
-        } catch (java.net.SocketTimeoutException e) {
-            System.out.println("TimeoutException");
-            try {
-                if (LoadBalancer.testInstance(i)) {
-                    System.out.println("Instance alive going to double timeout");
-                    redirect(t, instanceIp, query, timeout * 2);
-                    System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
-                    LoadBalancer.deleteRequestFromRunningRequests(i, query);
-                    LoadBalancer.incInstanceActiveThreads(i);
-                } else {
-                    throw new IOException();
+            System.out.println("Got a raytracer request");
+
+            // Forward the request
+            String query = t.getRequestURI().getQuery();
+            Instance i = null;
+            while (i == null){
+                try {
+                    i = getRightInstance(query);
+                }catch (java.util.ConcurrentModificationException e){
+                    Thread.sleep(1000);
                 }
-            } catch (IOException ex) {
-                System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it and " +
-                        "redirect request");
+            }
+            String instanceIp = i.getPublicIpAddress();
+            System.out.println("Instance chosen to handle the request " + i.getPrivateIpAddress() + " " + query);
+            LoadBalancer.decInstanceActiveThreads(i);
+            LoadBalancer.addRequestToRunningRequests(i, query);
+            int timeout = getRightTimeout(query, LoadBalancer.getInstanceActiveThreads(i) + "");
+
+            try {
+                redirect(t, instanceIp, query, timeout);
+                LoadBalancer.deleteRequestFromRunningRequests(i, query);
+                LoadBalancer.incInstanceActiveThreads(i);
+                System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
+            } catch (java.net.SocketTimeoutException e) {
+                System.out.println("TimeoutException");
+                try {
+                    if (LoadBalancer.testInstance(i)) {
+                        System.out.println("Instance alive going to double timeout");
+                        redirect(t, instanceIp, query, timeout * 2);
+                        System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
+                        LoadBalancer.deleteRequestFromRunningRequests(i, query);
+                        LoadBalancer.incInstanceActiveThreads(i);
+                    } else {
+                        throw new IOException();
+                    }
+                } catch (IOException ex) {
+                    System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it and " +
+                            "redirect request");
+                    LoadBalancer.getInstancesList().remove(i);
+                    LoadBalancer.removeInstanceActiveThreads(i);
+                    LoadBalancer.removeRunningRequests(i);
+                    handle(t);
+                }
+            } catch (IOException e) {
+                System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it, got IO");
                 LoadBalancer.getInstancesList().remove(i);
                 LoadBalancer.removeInstanceActiveThreads(i);
                 LoadBalancer.removeRunningRequests(i);
                 handle(t);
             }
-        } catch (IOException e) {
-            System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it, got IO");
-            LoadBalancer.getInstancesList().remove(i);
-            LoadBalancer.removeInstanceActiveThreads(i);
-            LoadBalancer.removeRunningRequests(i);
-            handle(t);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
+    //Method that redirects the request to the instance received
     private void redirect(HttpExchange t, String instanceIp, String query, int timeout)
             throws IOException {
         URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
@@ -80,34 +89,15 @@ public class RayTracerLBHandler implements HttpHandler {
         os.close();
     }
 
-    private Instance getInstanceWithMaxThreads(){
-        int nbThreads = 0;
-        Instance instanceToReturn = null;
-        for (Instance instance : LoadBalancer.getInstanceActiveThreads().keySet()) {
-            int nbThreadsInMap = LoadBalancer.getInstanceActiveThreads(instance);
-
-            if(nbThreadsInMap >= nbThreads && LoadBalancer.getInstancesList().contains(instance)){
-                instanceToReturn = instance;
-                nbThreads = nbThreadsInMap;
-            }
-
-        }
-
-        return instanceToReturn;
-    }
-
-    private Instance getRightInstance(String request){
+    //Method that determines the instance that is going to handle the request
+    private synchronized Instance getRightInstance(String request) {
         for (Instance instance : LoadBalancer.getInstancesList()) {
-            if(!weight(instance, request)){
+            if (!weight(instance, request)) {
                 return instance;
             }
         }
 
-        Instance i = getInstanceWithMaxThreads();
-        if(i == null || LoadBalancer.getInstanceActiveThreads(i) == 0){
-            return null;
-        }
-        return i;
+        return null;
     }
 
     private int getRightTimeout(String query, String availableThreads) {
@@ -128,7 +118,7 @@ public class RayTracerLBHandler implements HttpHandler {
         int threadsAvailable = Integer.parseInt(availableThreads);
         for (Map<String, AttributeValue> maps : scanResult.getItems()) {
             String count = maps.get("count").getS(); //MAYBE WE NEED MORE VERIFICATIONS
-            Long i = (Long.parseLong(count) / LoadBalancer.TIME_CONVERSION) * (6-threadsAvailable); //This const is the relation between the count and time but maybe this is not linear problem
+            Long i = (Long.parseLong(count) / LoadBalancer.TIME_CONVERSION) * (6 - threadsAvailable); //This const is the relation between the count and time but maybe this is not linear problem
             return i.intValue();
         }
         return -1;
@@ -147,8 +137,8 @@ public class RayTracerLBHandler implements HttpHandler {
     }
 
     //0 - 100
-    private boolean weight(Instance i, String requestToAdd){
-        if(LoadBalancer.getInstanceActiveThreads(i) == LoadBalancer.NB_MAX_THREADS) {
+    private synchronized boolean weight(Instance i, String requestToAdd) {
+        if (LoadBalancer.getInstanceActiveThreads(i) == 0) {
             return true;
         }
 
@@ -169,11 +159,11 @@ public class RayTracerLBHandler implements HttpHandler {
             Double nbMethodCount = AutoScaler.getMethodCounts(request);
             Double nbSuccessFactor = AutoScaler.getSuccessFactor(request);
 
-            if(nbMethodCount == -1.0) {
+            if (nbMethodCount == -1.0) {
                 nbMethodCount = AutoScaler.estimateNbMethodCount(request);
             }
 
-            if(LoadBalancer.DEBUG) {
+            if (LoadBalancer.DEBUG) {
                 System.out.println("For request " + runningRequest);
                 System.out.println("\tnbMethodCount = " + nbMethodCount);
                 System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
@@ -186,13 +176,13 @@ public class RayTracerLBHandler implements HttpHandler {
             successFactor.add(nbSuccessFactor);
         }
 
-        ArrayList<Integer> integers = Heuristic.calculateRank(methodCount, successFactor);
+        ArrayList<Integer> integers = Heuristic.calculateRankToSend(methodCount, successFactor);
 
         if (integers == null) {
             return false;
         }
 
-        return Heuristic.needToCreateInstance(integers);
+        return Heuristic.canSendRequest(integers);
     }
 
 }
