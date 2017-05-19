@@ -3,8 +3,6 @@ import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
-import com.amazonaws.services.cloudwatch.AmazonCloudWatch;
-import com.amazonaws.services.cloudwatch.AmazonCloudWatchClientBuilder;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.model.*;
@@ -29,16 +27,16 @@ import java.util.concurrent.Executors;
 public class LoadBalancer {
 
     private static final long INSTANCE_UPDATE_RATE = 10 * 1000;
-    private static final int TIME_CONVERSION = 45;
+    public static final int TIME_CONVERSION = 45;
     public static final String TABLE_NAME_COUNT = "CountMetricStorageSystem";
     public static final String TABLE_NAME_SUCCESS = "SuccessFactorStorageSystem";
     public static final String INSTANCES_AMI_ID = "ami-1d9b4272";
-    private static final int NB_MAX_THREADS = 5;
+    public static final int NB_MAX_THREADS = 5;
     private static final long AS_UPDATE_RATE = 1000 * 70;
     public static final boolean DEBUG = false;
 
-    private static AmazonDynamoDB dynamoDB;
-    private static AmazonEC2 ec2;
+    public static AmazonDynamoDB dynamoDB;
+    public static AmazonEC2 ec2;
 
 
     private static AutoScaler as;
@@ -225,7 +223,7 @@ public class LoadBalancer {
 
     }
 
-    private static boolean testInstance(Instance instance) throws IOException {
+    public static boolean testInstance(Instance instance) throws IOException {
         try {
             String query = "testtest";
             URL url = new URL("http://" + instance.getPublicIpAddress() + ":8000/test" + "?" + query);
@@ -238,18 +236,6 @@ public class LoadBalancer {
         } catch (java.net.ConnectException e){
             return false;
         }
-    }
-
-    private static String getContent(Object content) throws IOException {
-        InputStreamReader in = new InputStreamReader((InputStream) content);
-        BufferedReader buff = new BufferedReader(in);
-        String line = "";
-        StringBuffer text = new StringBuffer("");
-        do {
-            text.append(line);
-            line = buff.readLine();
-        } while (line != null);
-        return text.toString();
     }
 
     public static Instance getFreeInstance() {
@@ -314,7 +300,7 @@ public class LoadBalancer {
         LoadBalancer.runningRequests.put(instance, objects);
     }
 
-    private static synchronized void removeRunningRequests(Instance instance) {
+    public static synchronized void removeRunningRequests(Instance instance) {
         LoadBalancer.runningRequests.remove(instance);
     }
 
@@ -322,16 +308,20 @@ public class LoadBalancer {
         return LoadBalancer.runningRequests.get(i);
     }
 
-    private static synchronized void addRequestToRunningRequests(Instance i, String query) {
+    public static synchronized void addRequestToRunningRequests(Instance i, String query) {
         ArrayList<String> arrayListInMap = LoadBalancer.runningRequests.get(i);
         arrayListInMap.add(query);
         LoadBalancer.runningRequests.put(i, arrayListInMap);
     }
 
-    private static synchronized void deleteRequestFromRunningRequests(Instance i, String query) {
+    public static synchronized void deleteRequestFromRunningRequests(Instance i, String query) {
         ArrayList<String> arrayListInMap = LoadBalancer.runningRequests.get(i);
         arrayListInMap.remove(query);
         LoadBalancer.runningRequests.put(i, arrayListInMap);
+    }
+
+    public static List<Instance> getInstancesList(){
+        return instances;
     }
 
     public static HashMap<String, String> processQuery(String q) {
@@ -356,183 +346,6 @@ public class LoadBalancer {
             os.close();
         }
     }
-
-    static class RayTracerLBHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange t) throws IOException {
-
-            System.out.println("Got a raytracer request");
-
-            // Forward the request
-            String query = t.getRequestURI().getQuery();
-            Instance i = getRightInstance(query);
-            while (i == null) {
-                i = getRightInstance(query);
-            }
-            String instanceIp = i.getPublicIpAddress();
-            System.out.println("Instance chosen to handle the request " + i.getPrivateIpAddress() + " " + query);
-            decInstanceActiveThreads(i);
-            addRequestToRunningRequests(i, query);
-            int timeout = getRightTimeout(query, getInstanceActiveThreads(i) + "");
-
-            try {
-                redirect(t, instanceIp, query, timeout);
-                deleteRequestFromRunningRequests(i, query);
-                incInstanceActiveThreads(i);
-                System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
-            } catch (java.net.SocketTimeoutException e) {
-                System.out.println("TimeoutException");
-                try {
-                    if (testInstance(i)) {
-                        System.out.println("Instance alive going to double timeout");
-                        redirect(t, instanceIp, query, timeout * 2);
-                        System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
-                        deleteRequestFromRunningRequests(i, query);
-                        incInstanceActiveThreads(i);
-                    } else {
-                        throw new IOException();
-                    }
-                } catch (IOException ex) {
-                    System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it and " +
-                            "redirect request");
-                    instances.remove(i);
-                    removeInstanceActiveThreads(i);
-                    removeRunningRequests(i);
-                    handle(t);
-                }
-            } catch (IOException e) {
-                System.out.println("Instance " + i.getPublicIpAddress() + " should be dead going to remove it, got IO");
-                instances.remove(i);
-                removeInstanceActiveThreads(i);
-                removeRunningRequests(i);
-                handle(t);
-            }
-        }
-
-        private void redirect(HttpExchange t, String instanceIp, String query, int timeout)
-                throws IOException {
-            URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            System.out.println("Timeout value: " + timeout);
-            if (timeout != -1) {
-                conn.setConnectTimeout(timeout);//ir buscar metricas
-            }
-            conn.setRequestMethod("GET");
-            // Get the right information from the request
-            t.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
-            t.sendResponseHeaders(conn.getResponseCode(), conn.getContentLength());
-            String content = getContent(conn.getContent());
-            OutputStream os = t.getResponseBody();
-            os.write(content.getBytes());
-            os.close();
-        }
-
-        private Instance getInstanceWithMaxThreads(){
-            int nbThreads = 0;
-            Instance instanceToReturn = null;
-            for (Instance instance : getInstanceActiveThreads().keySet()) {
-                int nbThreadsInMap = getInstanceActiveThreads(instance);
-
-                if(nbThreadsInMap >= nbThreads && instances.contains(instance)){
-                    instanceToReturn = instance;
-                    nbThreads = nbThreadsInMap;
-                }
-
-            }
-
-            return instanceToReturn;
-        }
-
-        private Instance getRightInstance(String request){
-            for (Instance instance : instances) {
-                if(!weight(instance, request)){
-                    return instance;
-                }
-            }
-
-            Instance i = getInstanceWithMaxThreads();
-            if(i == null || getInstanceActiveThreads(i) == 0){
-                return null;
-            }
-            return i;
-        }
-
-        private int getRightTimeout(String query, String availableThreads) {
-            HashMap<String, String> processedQuery = processQuery(query);
-            HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
-            long resolution = Long.parseLong(processedQuery.get("wc")) * Long.parseLong(processedQuery.get("wr"));
-            Condition condition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
-                    .withAttributeValueList(new AttributeValue().withS(processedQuery.get("f") + "-" + resolution + ""));
-            scanFilter.put("filename-resolution", condition);
-
-            ScanRequest scanRequest = new ScanRequest(TABLE_NAME_COUNT).withScanFilter(scanFilter);
-            ScanResult scanResult = dynamoDB.scan(scanRequest);
-
-            return getCountFromQuery(scanResult, availableThreads);
-        }
-
-        private int getCountFromQuery(ScanResult scanResult, String availableThreads) {
-        	int threadsAvailable = Integer.parseInt(availableThreads);
-            for (Map<String, AttributeValue> maps : scanResult.getItems()) {
-                String count = maps.get("count").getS(); //MAYBE WE NEED MORE VERIFICATIONS
-                Long i = (Long.parseLong(count) / TIME_CONVERSION) * (6-threadsAvailable); //This const is the relation between the count and time but maybe this is not linear problem
-                return i.intValue();
-            }
-            return -1;
-        }
-
-        //0 - 100
-        private boolean weight(Instance i, String requestToAdd){
-            if(getInstanceActiveThreads(i) == NB_MAX_THREADS) {
-                return true;
-            }
-
-            ArrayList<String> runningRequests = new ArrayList<>(LoadBalancer.getRunningRequests(i));
-
-            if (runningRequests.size() == 0) {
-                return false;
-            }
-
-            runningRequests.add(requestToAdd);
-
-            ArrayList<Double> methodCount = new ArrayList<>();
-            ArrayList<Double> successFactor = new ArrayList<>();
-
-            for (String runningRequest : runningRequests) {
-                HashMap<String, String> request = LoadBalancer.processQuery(runningRequest);
-
-                Double nbMethodCount = AutoScaler.getMethodCounts(request);
-                Double nbSuccessFactor = AutoScaler.getSuccessFactor(request);
-
-                if(nbMethodCount == -1.0) {
-                    nbMethodCount = AutoScaler.estimateNbMethodCount(request);
-                }
-
-                if(DEBUG) {
-                    System.out.println("For request " + runningRequest);
-                    System.out.println("\tnbMethodCount = " + nbMethodCount);
-                    System.out.println("\tnbSuccessFactor = " + nbSuccessFactor);
-                }
-
-                //Query and get methodCount
-                methodCount.add(nbMethodCount);
-
-                //Query and get successFactor
-                successFactor.add(nbSuccessFactor);
-            }
-
-            ArrayList<Integer> integers = Heuristic.calculateRank(methodCount, successFactor);
-
-            if (integers == null) {
-                return false;
-            }
-
-            return Heuristic.needToCreateInstance(integers);
-        }
-
-
-    }
-
 
 }
 
