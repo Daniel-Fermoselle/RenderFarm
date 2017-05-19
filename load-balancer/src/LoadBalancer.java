@@ -56,7 +56,7 @@ public class LoadBalancer {
         server.setExecutor(null); // creates a default executor
 
         server.createContext("/r.html", new RayTracerLBHandler());
-        server.setExecutor(Executors.newFixedThreadPool(10)); // creates a default executor
+        server.setExecutor(Executors.newCachedThreadPool()); // creates a default executor
 
         server.start();
     }
@@ -252,10 +252,10 @@ public class LoadBalancer {
         return text.toString();
     }
 
-    public static String getFreeInstance() {
+    public static Instance getFreeInstance() {
         for (Instance instance : getInstanceActiveThreads().keySet()) {
             if (getInstanceActiveThreads(instance) == NB_MAX_THREADS){
-                return instance.getInstanceId();
+                return instance;
             }
         }
         throw new RuntimeException("No idle instances");
@@ -366,6 +366,9 @@ public class LoadBalancer {
             // Forward the request
             String query = t.getRequestURI().getQuery();
             Instance i = getRightInstance(query);
+            while (i == null) {
+                i = getRightInstance(query);
+            }
             String instanceIp = i.getPublicIpAddress();
             System.out.println("Instance chosen to handle the request " + i.getPrivateIpAddress() + " " + query);
             decInstanceActiveThreads(i);
@@ -376,14 +379,14 @@ public class LoadBalancer {
                 redirect(t, instanceIp, query, timeout);
                 deleteRequestFromRunningRequests(i, query);
                 incInstanceActiveThreads(i);
-                System.out.println("Instance " + i.getPrivateIpAddress() + " finished request " + query);
+                System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
             } catch (java.net.SocketTimeoutException e) {
                 System.out.println("TimeoutException");
                 try {
                     if (testInstance(i)) {
                         System.out.println("Instance alive going to double timeout");
                         redirect(t, instanceIp, query, timeout * 2);
-                        System.out.println("Instance " + i.getPrivateIpAddress() + " finished request " + query);
+                        System.out.println("Instance " + i.getPrivateIpAddress() + " FINISHED REQUEST " + query);
                         deleteRequestFromRunningRequests(i, query);
                         incInstanceActiveThreads(i);
                     } else {
@@ -447,7 +450,11 @@ public class LoadBalancer {
                 }
             }
 
-            return getInstanceWithMaxThreads();
+            Instance i = getInstanceWithMaxThreads();
+            if(i == null || getInstanceActiveThreads(i) == 0){
+                return null;
+            }
+            return i;
         }
 
         private int getRightTimeout(String query, String availableThreads) {

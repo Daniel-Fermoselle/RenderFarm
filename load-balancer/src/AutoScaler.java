@@ -58,7 +58,9 @@ public class AutoScaler {
             }
             else if(decCounter > (instances.size() * 0.7) && instances.size() > MIN_INSTANCES){
                 try {
-                    killInstance(LoadBalancer.getFreeInstance());
+                    Instance i = LoadBalancer.getFreeInstance();
+                    System.out.println("THIS IS THE MACHINE CHOSEN TO BE SACRIFICED " + i.getPrivateIpAddress());
+                    killInstance(i.getInstanceId());
                 } catch (RuntimeException e){
                     if(e.getMessage().equals("No idle instances")){
                         System.out.println("No idle instances but machines returned enough falses");

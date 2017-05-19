@@ -47,7 +47,7 @@ public class WebServer {
 		server.setExecutor(null); // creates a default executor
 
 		server.createContext("/r.html", new RayTracerHandler());
-		server.setExecutor(Executors.newFixedThreadPool(5)); // creates a default executor
+		server.setExecutor(Executors.newFixedThreadPool(6)); // creates a default executor
 
         server.start();
 	}
