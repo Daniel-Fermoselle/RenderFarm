@@ -2,6 +2,7 @@ import java.util.ArrayList;
 
 public class Heuristic {
 	
+	//Calculates the rank of an instance in order to detect the need of creating or deleting the instance
 	public static ArrayList<Integer> calculateRank(ArrayList<Double> methodsCount, ArrayList<Double> successFactor){
 		ArrayList<Integer> instanceRanks = new ArrayList<Integer>();
         for (int i = 0; i < methodsCount.size(); i++) {
@@ -16,6 +17,7 @@ public class Heuristic {
         return instanceRanks;
     }
 
+	//Calculates the rank of an instance in order to detect if it can handle another request or not
     public static ArrayList<Integer> calculateRankToSend(ArrayList<Double> methodsCount, ArrayList<Double> successFactor){
         ArrayList<Integer> instanceRanks = new ArrayList<Integer>();
         for (int i = 0; i < methodsCount.size(); i++) {
@@ -30,7 +32,7 @@ public class Heuristic {
         return instanceRanks;
     }
 
-
+    //Gets the rank to create
     private static int getRank(double x){
 		//Rank 4
 		if(x < 1){
@@ -53,6 +55,7 @@ public class Heuristic {
 		}
 	}
 	
+    //Based on the create ranks of the machine verifies if it is needed to create another machine
 	public static boolean needToCreateInstance(ArrayList<Integer> ranks){
 		int sumRanks = 0;
 		for(int rank : ranks){
@@ -65,6 +68,7 @@ public class Heuristic {
 		return false;
 	}
 
+	//Gets the rank to send
     private static int getRankToSend(double x){
         //Rank 4
         if(x < 1){
@@ -87,6 +91,7 @@ public class Heuristic {
         }
     }
 
+  //Based on the send ranks of the machine verifies if the machine can handle another request
 	public static boolean canSendRequest(ArrayList<Integer> ranks){
 		int sumRanks = 0;
 		for(int rank : ranks){

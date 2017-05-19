@@ -141,13 +141,13 @@ public class WebServer {
 				PutItemResult putItemResult= dynamoDB.putItem(putItemRequest);
                 System.out.println("Result: " + putItemResult);
 
-				//---Writing metrics for the request namely the method count
+				//---Writing metrics for the request namely the successFactor
 				item = newSuccessFactorItem(fileMetrics.get("filename"), fileMetrics.get("successFactor"));
 				putItemRequest = new PutItemRequest(TABLE_NAME_SUCCESS, item);
 				putItemResult= dynamoDB.putItem(putItemRequest);
 				System.out.println("Result: " + putItemResult);
                 
-            } catch (Exception e) {//REMOVE?
+            } catch (Exception e) {
                 e.printStackTrace();
                 System.out.println(e.getMessage());
             }

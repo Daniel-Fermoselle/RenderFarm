@@ -70,14 +70,14 @@ public class RayTracerLBHandler implements HttpHandler {
         }
     }
 
-    //Method that redirects the request to the instance received
+    //Method that redirects the request to the instance ip received
     private void redirect(HttpExchange t, String instanceIp, String query, int timeout)
             throws IOException {
         URL url = new URL("http://" + instanceIp + ":8000/r.html" + "?" + query);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         System.out.println("Timeout value: " + timeout);
         if (timeout != -1) {
-            conn.setConnectTimeout(timeout);//ir buscar metricas
+            conn.setConnectTimeout(timeout);//calculated timeout received
         }
         conn.setRequestMethod("GET");
         // Get the right information from the request
@@ -100,6 +100,7 @@ public class RayTracerLBHandler implements HttpHandler {
         return null;
     }
 
+    //Gets the right timeout for a request based on its methods count and resolution
     private int getRightTimeout(String query, String availableThreads) {
         HashMap<String, String> processedQuery = LoadBalancer.processQuery(query);
         HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
@@ -114,16 +115,18 @@ public class RayTracerLBHandler implements HttpHandler {
         return getCountFromQuery(scanResult, availableThreads);
     }
 
+    //Converts the number of methods to a estimation timeout
     private int getCountFromQuery(ScanResult scanResult, String availableThreads) {
         int threadsAvailable = Integer.parseInt(availableThreads);
         for (Map<String, AttributeValue> maps : scanResult.getItems()) {
-            String count = maps.get("count").getS(); //MAYBE WE NEED MORE VERIFICATIONS
-            Long i = (Long.parseLong(count) / LoadBalancer.TIME_CONVERSION) * (6 - threadsAvailable); //This const is the relation between the count and time but maybe this is not linear problem
+            String count = maps.get("count").getS();
+            Long i = (Long.parseLong(count) / LoadBalancer.TIME_CONVERSION) * (6 - threadsAvailable);
             return i.intValue();
         }
         return -1;
     }
 
+    //Gets the content of the response packet and returns it
     private String getContent(Object content) throws IOException {
         InputStreamReader in = new InputStreamReader((InputStream) content);
         BufferedReader buff = new BufferedReader(in);
@@ -136,7 +139,7 @@ public class RayTracerLBHandler implements HttpHandler {
         return text.toString();
     }
 
-    //0 - 100
+    //Calculates whether the instance received as the argument is able to handle the request
     private synchronized boolean weight(Instance i, String requestToAdd) {
         if (LoadBalancer.getInstanceActiveThreads(i) == 0) {
             return true;

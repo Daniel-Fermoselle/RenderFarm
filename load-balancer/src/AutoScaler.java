@@ -23,6 +23,7 @@ public class AutoScaler {
         createInstance();
     }
 
+    //Creates or deletes instances by necessity
     public void updateInstances() {
         try {
             Set<Instance> instances = getAllInstances();
@@ -74,6 +75,7 @@ public class AutoScaler {
         }
     }
 
+    //Gets all the instances which are alive and have the specified ami
     private Set<Instance> getAllInstances() {
         //Specify the type of instance we want to get
         List<String> list = new ArrayList<>();
@@ -122,7 +124,7 @@ public class AutoScaler {
         ec2.terminateInstances(termInstanceReq);
     }
 
-    //0 - 100
+    //Calculates whether or not it is necessary to create another instance
     private boolean weight(Instance i){
         ArrayList<String> runningRequests = LoadBalancer.getRunningRequests(i);
         ArrayList<Double> methodCount = new ArrayList<>();
@@ -164,6 +166,7 @@ public class AutoScaler {
         return Heuristic.needToCreateInstance(integers);
     }
 
+    //Query to get the number of methods called to draw the request returns -1.0 if no data found
     public static Double getMethodCounts(HashMap<String, String> request) {
         HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
         long resolution = Long.parseLong(request.get("wc")) * Long.parseLong(request.get("wr"));
@@ -180,6 +183,7 @@ public class AutoScaler {
         return -1.0;
     }
 
+    //Query to get the success factor to draw the request returns -1.0 if no data found
     public static Double getSuccessFactor(HashMap<String, String> request) {
         HashMap<String, Condition> scanFilter = new HashMap<String, Condition>();
         Condition condition = new Condition().withComparisonOperator(ComparisonOperator.EQ.toString())
@@ -195,6 +199,7 @@ public class AutoScaler {
         return -1.0;
     }
 
+    //Estimates the number of methods called based on an empiric constant and resolution of the request
     public static Double estimateNbMethodCount(HashMap<String, String> request) {
         long resolution = Long.parseLong(request.get("wc")) * Long.parseLong(request.get("wr"));
 
